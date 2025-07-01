@@ -46,7 +46,7 @@ const parseFormattedNumber = (str) => {
     return isNaN(parsed) ? 0 : parsed; // Return 0 if parsing results in NaN
 };
 
-// Helper function to format McNamara-MM string to Thai month and year for display
+// Helper function to format YYYY-MM string to Thai month and year for display
 const formatMonthYearForDisplay = (yyyyMm) => {
     if (!yyyyMm) return '';
     const [year, month] = yyyyMm.split('-');
@@ -111,7 +111,7 @@ function App() {
     const [pin, setPin] = useState('');
     const [isLoginMode, setIsLoginMode] = useState(true); // true for login, false for register
     const [authError, setAuthError] = useState('');
-
+    const [loggedInUsername, setLoggedInUsername] = useState(''); // State to store logged-in username
 
     // Data states
     const [incomeExpenses, setIncomeExpenses] = useState([]);
@@ -136,6 +136,9 @@ function App() {
 
     const currentEditingItem = useRef(null); // Ref to store the item being edited
 
+    // New state for selected month in Income/Expense tab
+    const [selectedMonth, setSelectedMonth] = useState('');
+
     // Initialize Firebase and set up authentication
     useEffect(() => {
         try {
@@ -146,9 +149,15 @@ function App() {
             const unsubscribe = onAuthStateChanged(authInstance, async (user) => {
                 if (user) {
                     setUserId(user.uid);
+                    // Extract username from email if it's in the dummy domain format
+                    const displayUsername = user.email.endsWith('@financeapp.com')
+                        ? user.email.substring(0, user.email.indexOf('@financeapp.com'))
+                        : user.email;
+                    setLoggedInUsername(displayUsername); // Set the logged-in username
                     setAuthError(''); // Clear auth errors on successful login
                 } else {
                     setUserId(null);
+                    setLoggedInUsername(''); // Clear logged-in username on logout
                 }
                 setLoading(false);
             });
@@ -203,6 +212,18 @@ function App() {
         };
     }, [db, userId, appId]); // appId is a constant, can be excluded from dependencies for useEffect
 
+    // Set initial selectedMonth when incomeExpenses data is loaded
+    useEffect(() => {
+        if (incomeExpenses.length > 0 && !selectedMonth) {
+            // Get the latest month from the sorted list
+            const latestMonth = sortedMonths[0];
+            if (latestMonth) {
+                setSelectedMonth(latestMonth);
+            }
+        }
+    }, [incomeExpenses, selectedMonth]);
+
+
     // --- Authentication Handlers ---
     const handleAuthSubmit = async (e) => {
         e.preventDefault();
@@ -242,6 +263,7 @@ function App() {
             try {
                 await signOut(auth);
                 setUserId(null); // Clear user ID on logout
+                setLoggedInUsername(''); // Clear logged-in username on logout
                 setActiveTab('dashboard'); // Go back to dashboard on logout
             } catch (err) {
                 console.error("ข้อผิดพลาดในการออกจากระบบ:", err);
@@ -545,30 +567,35 @@ function App() {
         สุทธิ: allMonthlyIncomeExpenseData[monthKey].net,
     }));
 
-    // Data for income/expense category distribution
-    const incomeCategoryData = incomeExpenses
+    // Data for income/expense category distribution (filtered by selectedMonth)
+    const filteredIncomeExpensesByMonth = incomeExpenses.filter(item =>
+        selectedMonth ? item.date.startsWith(selectedMonth) : true // Filter by selectedMonth if available
+    );
+
+    const incomeCategoryDataMonthly = filteredIncomeExpensesByMonth
         .filter(item => item.type === 'income')
         .reduce((acc, item) => {
             acc[item.category] = (acc[item.category] || 0) + parseFloat(item.amount);
             return acc;
         }, {});
 
-    const expenseCategoryData = incomeExpenses
+    const expenseCategoryDataMonthly = filteredIncomeExpensesByMonth
         .filter(item => item.type === 'expense')
         .reduce((acc, item) => {
             acc[item.category] = (acc[item.category] || 0) + parseFloat(item.amount);
             return acc;
         }, {});
 
-    const incomePieChartData = Object.keys(incomeCategoryData).map(category => ({
+    const incomePieChartDataMonthly = Object.keys(incomeCategoryDataMonthly).map(category => ({
         name: category,
-        value: incomeCategoryData[category]
+        value: incomeCategoryDataMonthly[category]
     }));
 
-    const expensePieChartData = Object.keys(expenseCategoryData).map(category => ({
+    const expensePieChartDataMonthly = Object.keys(expenseCategoryDataMonthly).map(category => ({
         name: category,
-        value: expenseCategoryData[category]
+        value: expenseCategoryDataMonthly[category]
     }));
+
 
     // Group income/expenses by month for display in the table
     const groupedIncomeExpenses = incomeExpenses.reduce((acc, item) => {
@@ -702,9 +729,9 @@ function App() {
 
             {/* Main Content */}
             <main className="flex-1 p-6 md:p-8 lg:p-10">
-                {userId && (
+                {loggedInUsername && ( // Display loggedInUsername instead of userId
                     <div className="text-right text-sm text-gray-500 mb-4">
-                        ชื่อผู้ใช้: <span className="font-mono text-gray-700">{userId}</span> {/* Changed "User ID:" to "ชื่อผู้ใช้:" */}
+                        ชื่อผู้ใช้: <span className="font-mono text-gray-700">{loggedInUsername}</span>
                     </div>
                 )}
 
@@ -788,11 +815,11 @@ function App() {
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                             <div className="bg-white p-6 rounded-xl shadow-lg">
                                 <h3 className="text-2xl font-bold text-gray-800 mb-4 text-center">สัดส่วนรายรับตามหมวดหมู่</h3>
-                                {incomePieChartData.length > 0 ? (
+                                {assetPieChartData.length > 0 ? (
                                     <ResponsiveContainer width="100%" height={300}>
                                         <PieChart>
                                             <Pie
-                                                data={incomePieChartData}
+                                                data={assetPieChartData}
                                                 cx="50%"
                                                 cy="50%"
                                                 outerRadius={100}
@@ -800,7 +827,7 @@ function App() {
                                                 dataKey="value"
                                                 label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                                             >
-                                                {incomePieChartData.map((entry, index) => (
+                                                {assetPieChartData.map((entry, index) => (
                                                     <Cell key={`cell-income-${index}`} fill={WARM_COLORS[index % WARM_COLORS.length]} />
                                                 ))}
                                             </Pie>
@@ -814,11 +841,11 @@ function App() {
                             </div>
                             <div className="bg-white p-6 rounded-xl shadow-lg">
                                 <h3 className="text-2xl font-bold text-gray-800 mb-4 text-center">สัดส่วนรายจ่ายตามหมวดหมู่</h3>
-                                {expensePieChartData.length > 0 ? (
+                                {liabilityPieChartData.length > 0 ? (
                                     <ResponsiveContainer width="100%" height={300}>
                                         <PieChart>
                                             <Pie
-                                                data={expensePieChartData}
+                                                data={liabilityPieChartData}
                                                 cx="50%"
                                                 cy="50%"
                                                 outerRadius={100}
@@ -826,7 +853,7 @@ function App() {
                                                 dataKey="value"
                                                 label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                                             >
-                                                {expensePieChartData.map((entry, index) => (
+                                                {liabilityPieChartData.map((entry, index) => (
                                                     <Cell key={`cell-expense-${index}`} fill={COOL_COLORS[index % COOL_COLORS.length]} />
                                                 ))}
                                             </Pie>
@@ -847,8 +874,8 @@ function App() {
                     <section className="space-y-8">
                         <h2 className="text-4xl font-extrabold text-indigo-800 mb-6 text-center">บันทึกรายรับ-รายจ่าย</h2>
 
-                        {/* Add Transaction Button */}
-                        <div className="flex justify-end mb-6">
+                        {/* Add Transaction Button and Month Selector */}
+                        <div className="flex flex-col md:flex-row justify-between items-center mb-6 space-y-4 md:space-y-0 md:space-x-4">
                             <button
                                 onClick={() => { resetTransactionForm(); setShowTransactionModal(true); }}
                                 className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 transform hover:scale-105 flex items-center"
@@ -858,7 +885,85 @@ function App() {
                                 </svg>
                                 เพิ่มรายการใหม่
                             </button>
+                            <div className="flex items-center space-x-2">
+                                <label htmlFor="monthSelector" className="text-lg font-medium text-gray-700">เลือกเดือน:</label>
+                                <select
+                                    id="monthSelector"
+                                    value={selectedMonth}
+                                    onChange={(e) => setSelectedMonth(e.target.value)}
+                                    className="border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                                >
+                                    {sortedMonths.length > 0 ? (
+                                        sortedMonths.map(monthKey => (
+                                            <option key={monthKey} value={monthKey}>
+                                                {formatMonthYearForDisplay(monthKey)}
+                                            </option>
+                                        ))
+                                    ) : (
+                                        <option value="">ไม่มีข้อมูลเดือน</option>
+                                    )}
+                                </select>
+                            </div>
                         </div>
+
+                        {/* Monthly Income/Expense Category Distribution Charts */}
+                        {selectedMonth && (
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                                <div className="bg-white p-6 rounded-xl shadow-lg">
+                                    <h3 className="text-2xl font-bold text-gray-800 mb-4 text-center">สัดส่วนรายรับตามหมวดหมู่ ({formatMonthYearForDisplay(selectedMonth)})</h3>
+                                    {incomePieChartDataMonthly.length > 0 ? (
+                                        <ResponsiveContainer width="100%" height={300}>
+                                            <PieChart>
+                                                <Pie
+                                                    data={incomePieChartDataMonthly}
+                                                    cx="50%"
+                                                    cy="50%"
+                                                    outerRadius={100}
+                                                    fill="#8884d8"
+                                                    dataKey="value"
+                                                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                                                >
+                                                    {incomePieChartDataMonthly.map((entry, index) => (
+                                                        <Cell key={`cell-income-monthly-${index}`} fill={WARM_COLORS[index % WARM_COLORS.length]} />
+                                                    ))}
+                                                </Pie>
+                                                <Tooltip formatter={(value) => `${formatNumberWithCommas(value)} บาท`} />
+                                                <Legend />
+                                            </PieChart>
+                                        </ResponsiveContainer>
+                                    ) : (
+                                        <p className="text-center text-gray-500">ไม่มีข้อมูลรายรับสำหรับเดือนนี้</p>
+                                    )}
+                                </div>
+                                <div className="bg-white p-6 rounded-xl shadow-lg">
+                                    <h3 className="text-2xl font-bold text-gray-800 mb-4 text-center">สัดส่วนรายจ่ายตามหมวดหมู่ ({formatMonthYearForDisplay(selectedMonth)})</h3>
+                                    {expensePieChartDataMonthly.length > 0 ? (
+                                        <ResponsiveContainer width="100%" height={300}>
+                                            <PieChart>
+                                                <Pie
+                                                    data={expensePieChartDataMonthly}
+                                                    cx="50%"
+                                                    cy="50%"
+                                                    outerRadius={100}
+                                                    fill="#8884d8"
+                                                    dataKey="value"
+                                                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                                                >
+                                                    {expensePieChartDataMonthly.map((entry, index) => (
+                                                        <Cell key={`cell-expense-monthly-${index}`} fill={COOL_COLORS[index % COOL_COLORS.length]} />
+                                                    ))}
+                                                </Pie>
+                                                <Tooltip formatter={(value) => `${formatNumberWithCommas(value)} บาท`} />
+                                                <Legend />
+                                            </PieChart>
+                                        </ResponsiveContainer>
+                                    ) : (
+                                        <p className="text-center text-gray-500">ไม่มีข้อมูลรายจ่ายสำหรับเดือนนี้</p>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
 
                         {/* Income/Expense List by Month */}
                         {sortedMonths.length > 0 ? (
