@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react'; // Added useMemo
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
 import { getFirestore, collection, addDoc, getDocs, updateDoc, deleteDoc, doc, onSnapshot, query, orderBy, setDoc } from 'firebase/firestore';
@@ -46,10 +46,10 @@ const parseFormattedNumber = (str) => {
     return isNaN(parsed) ? 0 : parsed; // Return 0 if parsing results in NaN
 };
 
-// Helper function to format yyyy-MM string to Thai month and year for display
-const formatMonthYearForDisplay = (yyyyMm) => { // FIXED: Changed McNamaraMm to yyyyMm
+// Helper function to format YYYY-MM string to Thai month and year for display
+const formatMonthYearForDisplay = (yyyyMm) => {
     if (!yyyyMm) return '';
-    const [year, month] = yyyyMm.split('-'); // FIXED: Changed McNamaraMm to yyyyMm
+    const [year, month] = yyyyMm.split('-');
     const date = new Date(year, month - 1); // Month is 0-indexed in Date constructor
     return date.toLocaleString('th-TH', { month: 'long', year: 'numeric' });
 };
@@ -134,7 +134,7 @@ function App() {
     const [showGoalModal, setShowGoalModal] = useState(false);
     const [showConfirmModal, setShowConfirmModal] = useState(false);
     const [confirmAction, setConfirmAction] = useState(null);
-    const [confirmMessage, setConfirmMessage] = useState(''); // Corrected initialization
+    const [confirmMessage, setConfirmMessage] = useState('');
 
     const currentEditingItem = useRef(null); // Ref to store the item being edited
 
@@ -210,9 +210,22 @@ function App() {
         };
     }, [db, userId, appId]); // appId is a constant, can be excluded from dependencies for useEffect
 
+    // Memoize sortedMonths to prevent unnecessary recalculations
+    const sortedMonths = useMemo(() => {
+        const grouped = incomeExpenses.reduce((acc, item) => {
+            const monthKey = item.date.substring(0, 7);
+            if (!acc[monthKey]) {
+                acc[monthKey] = [];
+            }
+            acc[monthKey].push(item);
+            return acc;
+        }, {});
+        return Object.keys(grouped).sort((a, b) => b.localeCompare(a)); // Sort descending (most recent first)
+    }, [incomeExpenses]);
+
     // Set initial selectedMonth when incomeExpenses data is loaded
     useEffect(() => {
-        if (incomeExpenses.length > 0 && !selectedMonth) {
+        if (incomeExpenses.length > 0 && !selectedMonth && sortedMonths.length > 0) {
             // Get the latest month from the sorted list
             const latestMonth = sortedMonths[0];
             if (latestMonth) {
@@ -536,7 +549,7 @@ function App() {
     const allMonthlyIncomeExpenseData = {};
 
     incomeExpenses.forEach(item => {
-        // Use yyyy-MM for consistent sorting
+        // Use YYYY-MM for consistent sorting
         const monthKey = item.date.substring(0, 7);
         if (!allMonthlyIncomeExpenseData[monthKey]) {
             allMonthlyIncomeExpenseData[monthKey] = { income: 0, expense: 0, net: 0 };
@@ -557,7 +570,7 @@ function App() {
     const visibleMonthKeys = sortedAllMonthKeys.slice(startIndex, endIndex);
 
     const incomeExpenseTrendData = visibleMonthKeys.map(monthKey => ({
-        month: monthKey, // Keep yyyy-MM for sorting
+        month: monthKey, // Keep YYYY-MM for sorting
         รายรับ: allMonthlyIncomeExpenseData[monthKey].income || 0,
         รายจ่าย: allMonthlyIncomeExpenseData[monthKey].expense || 0,
         สุทธิ: allMonthlyIncomeExpenseData[monthKey].net || 0,
@@ -595,7 +608,7 @@ function App() {
 
     // Group income/expenses by month for display in the table
     const groupedIncomeExpenses = incomeExpenses.reduce((acc, item) => {
-        // Use yyyy-MM for consistent grouping
+        // Use YYYY-MM for consistent grouping
         const monthKey = item.date.substring(0, 7);
         if (!acc[monthKey]) {
             acc[monthKey] = [];
@@ -604,8 +617,9 @@ function App() {
         return acc;
     }, {});
 
-    // Sort months in descending order (most recent first) based on yyyy-MM keys
-    const sortedMonths = Object.keys(groupedIncomeExpenses).sort((a, b) => b.localeCompare(a));
+    // Sort months in descending order (most recent first) based on YYYY-MM keys
+    // This is now derived from sortedMonths useMemo, so no direct sorting here.
+    // const sortedMonths = Object.keys(groupedIncomeExpenses).sort((a, b) => b.localeCompare(a));
 
 
     if (loading) {
