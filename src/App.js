@@ -4,8 +4,7 @@ import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, 
 import { getFirestore, collection, addDoc, getDocs, updateDoc, deleteDoc, doc, onSnapshot, query, orderBy, setDoc } from 'firebase/firestore';
 import { AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
 
-// ... (imports) ...
-
+// Define Firebase config (values are loaded from environment variables)
 const firebaseConfig = {
   apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
   authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
@@ -15,14 +14,13 @@ const firebaseConfig = {
   appId: process.env.REACT_APP_FIREBASE_APP_ID
 };
 
-// Initialize Firebase
+// Initialize Firebase outside the component to prevent re-initialization
 const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-const auth = getAuth(app);
+const dbInstance = getFirestore(app); // Renamed to avoid conflict with state variable
+const authInstance = getAuth(app); // Renamed to avoid conflict with state variable
 
-const appId = firebaseConfig.projectId; // ตรวจสอบว่าบรรทัดนี้อยู่ตรงนี้
+const appId = firebaseConfig.projectId;
 
-// ... (ส่วนที่เหลือของ App component) ...
 // Helper function to format a number with commas
 const formatNumberWithCommas = (num) => {
     if (num === '' || num === null || isNaN(num)) {
@@ -141,11 +139,9 @@ function App() {
     // Initialize Firebase and set up authentication
     useEffect(() => {
         try {
-            const app = initializeApp(firebaseConfig);
-            const authInstance = getAuth(app);
-            const firestoreInstance = getFirestore(app);
+            // Use the already initialized instances
             setAuth(authInstance);
-            setDb(firestoreInstance);
+            setDb(dbInstance);
 
             const unsubscribe = onAuthStateChanged(authInstance, async (user) => {
                 if (user) {
@@ -163,7 +159,7 @@ function App() {
             setError("ไม่สามารถเริ่มต้นแอปพลิเคชันได้ โปรดตรวจสอบการกำหนดค่า Firebase");
             setLoading(false);
         }
-    }, []);
+    }, []); // Empty dependency array means this runs once on mount
 
     // Fetch data when userId is available
     useEffect(() => {
@@ -205,7 +201,7 @@ function App() {
             unsubLiabilities();
             unsubGoals();
         };
-    }, [db, userId, appId]);
+    }, [db, userId, appId]); // appId is a constant, can be excluded from dependencies for useEffect
 
     // --- Authentication Handlers ---
     const handleAuthSubmit = async (e) => {
@@ -523,7 +519,7 @@ function App() {
     const allMonthlyIncomeExpenseData = {};
 
     incomeExpenses.forEach(item => {
-        // Use yyyy-MM for consistent sorting
+        // Use YYYY-MM for consistent sorting
         const monthKey = item.date.substring(0, 7);
         if (!allMonthlyIncomeExpenseData[monthKey]) {
             allMonthlyIncomeExpenseData[monthKey] = { income: 0, expense: 0, net: 0 };
@@ -543,7 +539,7 @@ function App() {
     const visibleMonthKeys = sortedAllMonthKeys.slice(startIndex, endIndex).sort((a, b) => a.localeCompare(b)); // Sort ascending for chart display
 
     const incomeExpenseTrendData = visibleMonthKeys.map(monthKey => ({
-        month: monthKey, // Keep yyyy-MM for sorting
+        month: monthKey, // Keep YYYY-MM for sorting
         รายรับ: allMonthlyIncomeExpenseData[monthKey].income,
         รายจ่าย: allMonthlyIncomeExpenseData[monthKey].expense,
         สุทธิ: allMonthlyIncomeExpenseData[monthKey].net,
@@ -576,7 +572,7 @@ function App() {
 
     // Group income/expenses by month for display in the table
     const groupedIncomeExpenses = incomeExpenses.reduce((acc, item) => {
-        // Use yyyy-MM for consistent grouping
+        // Use YYYY-MM for consistent grouping
         const monthKey = item.date.substring(0, 7);
         if (!acc[monthKey]) {
             acc[monthKey] = [];
@@ -585,7 +581,7 @@ function App() {
         return acc;
     }, {});
 
-    // Sort months in descending order (most recent first) based on yyyy-MM keys
+    // Sort months in descending order (most recent first) based on YYYY-MM keys
     const sortedMonths = Object.keys(groupedIncomeExpenses).sort((a, b) => b.localeCompare(a));
 
 
@@ -708,7 +704,7 @@ function App() {
             <main className="flex-1 p-6 md:p-8 lg:p-10">
                 {userId && (
                     <div className="text-right text-sm text-gray-500 mb-4">
-                        User ID: <span className="font-mono text-gray-700">{userId}</span>
+                        ชื่อผู้ใช้: <span className="font-mono text-gray-700">{userId}</span> {/* Changed "User ID:" to "ชื่อผู้ใช้:" */}
                     </div>
                 )}
 
@@ -721,116 +717,77 @@ function App() {
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                             <div className="bg-white p-6 rounded-xl shadow-lg border border-blue-200 text-center transform hover:scale-105 transition-transform duration-300">
                                 <h3 className="text-xl font-semibold text-gray-600 mb-2">สินทรัพย์รวม</h3>
-                                <p className="text-4xl font-bold text-green-600">{totalAssets.toLocaleString('th-TH')} บาท</p>
+                                <p className="text-4xl font-bold text-green-600">{formatNumberWithCommas(totalAssets)} บาท</p>
                             </div>
                             <div className="bg-white p-6 rounded-xl shadow-lg border border-red-200 text-center transform hover:scale-105 transition-transform duration-300">
                                 <h3 className="text-xl font-semibold text-gray-600 mb-2">หนี้สินรวม</h3>
-                                <p className="text-4xl font-bold text-red-600">{totalLiabilities.toLocaleString('th-TH')} บาท</p>
+                                <p className="text-4xl font-bold text-red-600">{formatNumberWithCommas(totalLiabilities)} บาท</p>
                             </div>
-                            <div className="bg-white p-6 rounded-xl shadow-lg border border-indigo-200 text-center transform hover:scale-105 transition-transform duration-300">
-                                <h3 className="text-xl font-semibold text-gray-600 mb-2">ความมั่งคั่งสุทธิ</h3>
-                                <p className={`text-5xl font-extrabold ${netWorth >= 0 ? 'text-indigo-700' : 'text-red-700'}`}>
-                                    {netWorth.toLocaleString('th-TH')} บาท
-                                </p>
+                            <div className="bg-white p-6 rounded-xl shadow-lg border border-purple-200 text-center transform hover:scale-105 transition-transform duration-300">
+                                <h3 className="text-xl font-semibold text-gray-600 mb-2">มูลค่าสุทธิ</h3>
+                                <p className={`text-4xl font-bold ${netWorth >= 0 ? 'text-green-700' : 'text-red-700'}`}>{formatNumberWithCommas(netWorth)} บาท</p>
                             </div>
                         </div>
 
-                        {/* Charts Section */}
-                        <div className="grid grid-cols-1 gap-8">
-                            <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
-                                <h3 className="text-2xl font-semibold text-gray-700 mb-4">สินทรัพย์ vs หนี้สิน</h3>
-                                {totalAssets > 0 || totalLiabilities > 0 || netWorth !== 0 ? (
-                                    <ResponsiveContainer width="100%" height={300}>
-                                        <BarChart
-                                            data={[{ name: 'สถานะการเงิน', สินทรัพย์: totalAssets, หนี้สิน: totalLiabilities, ความมั่งคั่งสุทธิ: netWorth }]}
-                                            margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
-                                        >
-                                            <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
-                                            <XAxis dataKey="name" />
-                                            <YAxis />
-                                            <Tooltip formatter={(value) => `${value.toLocaleString('th-TH')} บาท`} />
-                                            <Legend />
-                                            {/* Bar Chart for Assets vs Liabilities vs Net Worth */}
-                                            <Bar dataKey="สินทรัพย์" fill="#4CAF50" barSize={40} />
-                                            <Bar dataKey="หนี้สิน" fill="#F44336" barSize={40} />
-                                            <Bar dataKey="ความมั่งคั่งสุทธิ" fill="#4a90e2" barSize={40} />
-                                        </BarChart>
-                                    </ResponsiveContainer>
-                                ) : (
-                                    <p className="text-center text-gray-500 mt-10">ยังไม่มีข้อมูลสินทรัพย์หรือหนี้สิน</p>
-                                )}
+                        {/* Cash Flow Summary */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                            <div className="bg-white p-6 rounded-xl shadow-lg border border-green-200 text-center transform hover:scale-105 transition-transform duration-300">
+                                <h3 className="text-xl font-semibold text-gray-600 mb-2">รายรับรวม</h3>
+                                <p className="text-4xl font-bold text-green-600">{formatNumberWithCommas(totalIncome)} บาท</p>
+                            </div>
+                            <div className="bg-white p-6 rounded-xl shadow-lg border border-orange-200 text-center transform hover:scale-105 transition-transform duration-300">
+                                <h3 className="text-xl font-semibold text-gray-600 mb-2">รายจ่ายรวม</h3>
+                                <p className="text-4xl font-bold text-red-600">{formatNumberWithCommas(totalExpenses)} บาท</p>
+                            </div>
+                            <div className="bg-white p-6 rounded-xl shadow-lg border border-blue-200 text-center transform hover:scale-105 transition-transform duration-300">
+                                <h3 className="text-xl font-semibold text-gray-600 mb-2">กระแสเงินสดสุทธิ</h3>
+                                <p className={`text-4xl font-bold ${netCashFlow >= 0 ? 'text-green-700' : 'text-red-700'}`}>{formatNumberWithCommas(netCashFlow)} บาท</p>
                             </div>
                         </div>
 
-                        {/* Income/Expense Trend */}
-                        <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200 mt-8">
-                            <h3 className="text-2xl font-semibold text-gray-700 mb-4">แนวโน้มรายรับ-รายจ่าย (กระแสเงินสด)</h3>
+                        {/* Income/Expense Trend Chart */}
+                        <div className="bg-white p-6 rounded-xl shadow-lg mb-8">
+                            <h3 className="text-2xl font-bold text-gray-800 mb-4 text-center">แนวโน้มรายรับ-รายจ่าย 6 เดือนล่าสุด</h3>
                             <div className="flex justify-center mb-4 space-x-4">
-                                <button
-                                    onClick={() => setMonthOffset(prev => prev + 1)}
-                                    disabled={startIndex + 6 >= sortedAllMonthKeys.length}
-                                    className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-lg transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    เดือนก่อนหน้า
-                                </button>
                                 <button
                                     onClick={() => setMonthOffset(prev => Math.max(0, prev - 1))}
                                     disabled={monthOffset === 0}
-                                    className="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded-lg transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    className="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                    เดือนถัดไป
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block mr-1" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
+                                    </svg>
+                                    ย้อนหลัง
+                                </button>
+                                <button
+                                    onClick={() => setMonthOffset(prev => prev + 1)}
+                                    disabled={visibleMonthKeys.length < 6 || startIndex + 6 >= sortedAllMonthKeys.length}
+                                    className="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    ถัดไป
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block ml-1" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                                    </svg>
                                 </button>
                             </div>
-                            {incomeExpenseTrendData.length > 0 ? (
-                                <ResponsiveContainer width="100%" height={350}>
-                                    <BarChart
-                                        data={incomeExpenseTrendData}
-                                        margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
-                                    >
-                                        <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
-                                        <XAxis dataKey="month" tickFormatter={formatMonthYearForDisplay} />
-                                        <YAxis />
-                                        <Tooltip formatter={(value) => `${value.toLocaleString('th-TH')} บาท`} />
-                                        <Legend />
-                                        {/* Bar Chart for Income, Expense, and Net Cash Flow */}
-                                        <Bar dataKey="รายรับ" fill="#82ca9d" radius={[5, 5, 0, 0]} />
-                                        <Bar dataKey="รายจ่าย" fill="#FA8072" radius={[5, 5, 0, 0]} />
-                                        <Bar dataKey="สุทธิ" fill="#4a90e2" radius={[5, 5, 0, 0]} />
-                                    </BarChart>
-                                </ResponsiveContainer>
-                            ) : (
-                                <p className="text-center text-gray-500 mt-10">ยังไม่มีข้อมูลรายรับ-รายจ่าย</p>
-                            )}
+                            <ResponsiveContainer width="100%" height={300}>
+                                <LineChart data={incomeExpenseTrendData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                                    <XAxis dataKey="month" tickFormatter={formatMonthYearForDisplay} angle={-45} textAnchor="end" height={60} />
+                                    <YAxis tickFormatter={formatNumberWithCommas} />
+                                    <Tooltip formatter={(value) => `${formatNumberWithCommas(value)} บาท`} labelFormatter={formatMonthYearForDisplay} />
+                                    <Legend />
+                                    <Line type="monotone" dataKey="รายรับ" stroke="#82ca9d" strokeWidth={2} activeDot={{ r: 8 }} />
+                                    <Line type="monotone" dataKey="รายจ่าย" stroke="#ff7300" strokeWidth={2} activeDot={{ r: 8 }} />
+                                    <Line type="monotone" dataKey="สุทธิ" stroke="#8884d8" strokeWidth={2} activeDot={{ r: 8 }} />
+                                </LineChart>
+                            </ResponsiveContainer>
                         </div>
 
-                        {/* Financial Health Analysis (Simplified) */}
-                        <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200 mt-8">
-                            <h3 className="text-2xl font-semibold text-gray-700 mb-4">วิเคราะห์สุขภาพการเงิน</h3>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-lg">
-                                <p><span className="font-semibold">กระแสเงินสดสุทธิ:</span> <span className={netCashFlow >= 0 ? 'text-green-600' : 'text-red-600'}>{netCashFlow.toLocaleString('th-TH')} บาท/เดือน</span></p>
-                                <p><span className="font-semibold">อัตราส่วนหนี้สินต่อสินทรัพย์:</span> {totalAssets > 0 ? ((totalLiabilities / totalAssets) * 100).toFixed(2) : 0}%</p>
-                                {/* More sophisticated analysis would require more data and historical tracking */}
-                            </div>
-                        </div>
-                    </section>
-                )}
-
-                {/* Income/Expense Tab */}
-                {activeTab === 'income-expense' && (
-                    <section>
-                        <h2 className="text-3xl font-extrabold text-indigo-800 mb-6 text-center">บันทึกรายรับ-รายจ่าย</h2>
-                        <div className="flex justify-center mb-6">
-                            <button
-                                onClick={() => { setShowTransactionModal(true); resetTransactionForm(); }}
-                                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 transform hover:scale-105"
-                            >
-                                + เพิ่มรายการใหม่
-                            </button>
-                        </div>
-
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-                            <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
-                                <h3 className="text-2xl font-semibold text-gray-700 mb-4">สัดส่วนรายรับตามหมวดหมู่</h3>
+                        {/* Category Distribution Charts */}
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            <div className="bg-white p-6 rounded-xl shadow-lg">
+                                <h3 className="text-2xl font-bold text-gray-800 mb-4 text-center">สัดส่วนรายรับตามหมวดหมู่</h3>
                                 {incomePieChartData.length > 0 ? (
                                     <ResponsiveContainer width="100%" height={300}>
                                         <PieChart>
@@ -838,26 +795,25 @@ function App() {
                                                 data={incomePieChartData}
                                                 cx="50%"
                                                 cy="50%"
-                                                labelLine={false}
                                                 outerRadius={100}
                                                 fill="#8884d8"
                                                 dataKey="value"
                                                 label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                                             >
                                                 {incomePieChartData.map((entry, index) => (
-                                                    <Cell key={`cell-income-${index}`} fill={COOL_COLORS[index % COOL_COLORS.length]} />
+                                                    <Cell key={`cell-income-${index}`} fill={WARM_COLORS[index % WARM_COLORS.length]} />
                                                 ))}
                                             </Pie>
-                                            <Tooltip formatter={(value) => `${value.toLocaleString('th-TH')} บาท`} />
+                                            <Tooltip formatter={(value) => `${formatNumberWithCommas(value)} บาท`} />
                                             <Legend />
                                         </PieChart>
                                     </ResponsiveContainer>
                                 ) : (
-                                    <p className="text-center text-gray-500 mt-10">ยังไม่มีข้อมูลรายรับ</p>
+                                    <p className="text-center text-gray-500">ไม่มีข้อมูลรายรับ</p>
                                 )}
                             </div>
-                            <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
-                                <h3 className="text-2xl font-semibold text-gray-700 mb-4">สัดส่วนรายจ่ายตามหมวดหมู่</h3>
+                            <div className="bg-white p-6 rounded-xl shadow-lg">
+                                <h3 className="text-2xl font-bold text-gray-800 mb-4 text-center">สัดส่วนรายจ่ายตามหมวดหมู่</h3>
                                 {expensePieChartData.length > 0 ? (
                                     <ResponsiveContainer width="100%" height={300}>
                                         <PieChart>
@@ -865,301 +821,295 @@ function App() {
                                                 data={expensePieChartData}
                                                 cx="50%"
                                                 cy="50%"
-                                                labelLine={false}
                                                 outerRadius={100}
                                                 fill="#8884d8"
                                                 dataKey="value"
                                                 label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                                             >
                                                 {expensePieChartData.map((entry, index) => (
-                                                    <Cell key={`cell-expense-${index}`} fill={WARM_COLORS[index % WARM_COLORS.length]} />
+                                                    <Cell key={`cell-expense-${index}`} fill={COOL_COLORS[index % COOL_COLORS.length]} />
                                                 ))}
                                             </Pie>
-                                            <Tooltip formatter={(value) => `${value.toLocaleString('th-TH')} บาท`} />
+                                            <Tooltip formatter={(value) => `${formatNumberWithCommas(value)} บาท`} />
                                             <Legend />
                                         </PieChart>
                                     </ResponsiveContainer>
                                 ) : (
-                                    <p className="text-center text-gray-500 mt-10">ยังไม่มีข้อมูลรายจ่าย</p>
+                                    <p className="text-center text-gray-500">ไม่มีข้อมูลรายจ่าย</p>
                                 )}
                             </div>
-                        </div>
-
-                        <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
-                            <h3 className="text-2xl font-semibold text-gray-700 mb-4">รายการทั้งหมด</h3>
-                            {incomeExpenses.length === 0 ? (
-                                <p className="text-center text-gray-500 py-10">ยังไม่มีรายการรายรับ-รายจ่าย</p>
-                            ) : (
-                                <div className="space-y-6">
-                                    {sortedMonths.map(monthKey => (
-                                        <div key={monthKey} className="border border-gray-200 rounded-lg overflow-hidden">
-                                            <h4 className="bg-gray-100 text-lg font-semibold text-gray-700 p-4 border-b border-gray-200">
-                                                {formatMonthYearForDisplay(monthKey)}
-                                            </h4>
-                                            <div className="overflow-x-auto">
-                                                <table className="min-w-full divide-y divide-gray-200">
-                                                    <thead className="bg-gray-50">
-                                                        <tr>
-                                                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                                วันที่
-                                                            </th>
-                                                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                                ประเภท
-                                                            </th>
-                                                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                                หมวดหมู่
-                                                            </th>
-                                                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                                รายละเอียด
-                                                            </th>
-                                                            <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                                จำนวนเงิน (บาท)
-                                                            </th>
-                                                            <th scope="col" className="relative px-6 py-3">
-                                                                <span className="sr-only">แก้ไข/ลบ</span>
-                                                            </th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody className="bg-white divide-y divide-gray-200">
-                                                        {groupedIncomeExpenses[monthKey].map((item) => (
-                                                            <tr key={item.id}>
-                                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                                    {item.date}
-                                                                </td>
-                                                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                                                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${item.type === 'income' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                                                                        {item.type === 'income' ? 'รายรับ' : 'รายจ่าย'}
-                                                                    </span>
-                                                                </td>
-                                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                                    {item.category}
-                                                                </td>
-                                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                                    {item.description}
-                                                                </td>
-                                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-medium">
-                                                                    <span className={item.type === 'income' ? 'text-green-600' : 'text-red-600'}>
-                                                                        {parseFloat(item.amount).toLocaleString('th-TH')}
-                                                                    </span>
-                                                                </td>
-                                                                <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                                                    <button
-                                                                        onClick={() => editTransaction(item)}
-                                                                        className="text-indigo-600 hover:text-indigo-900 mr-3"
-                                                                    >
-                                                                        แก้ไข
-                                                                    </button>
-                                                                    <button
-                                                                        onClick={() => confirmDelete('income_expenses', item.id, `คุณแน่ใจหรือไม่ที่ต้องการลบรายการ "${item.description}"?`)}
-                                                                        className="text-red-600 hover:text-red-900"
-                                                                    >
-                                                                        ลบ
-                                                                    </button>
-                                                                </td>
-                                                            </tr>
-                                                        ))}
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
                         </div>
                     </section>
                 )}
 
-                {/* Assets/Liabilities Tab */}
-                {activeTab === 'assets-liabilities' && (
-                    <section>
-                        <h2 className="text-3xl font-extrabold text-indigo-800 mb-6 text-center">จัดการสินทรัพย์และหนี้สิน</h2>
-                        <div className="flex justify-center space-x-4 mb-6">
+                {/* Income/Expense Tab */}
+                {activeTab === 'income-expense' && (
+                    <section className="space-y-8">
+                        <h2 className="text-4xl font-extrabold text-indigo-800 mb-6 text-center">บันทึกรายรับ-รายจ่าย</h2>
+
+                        {/* Add Transaction Button */}
+                        <div className="flex justify-end mb-6">
                             <button
-                                onClick={() => { setShowAssetModal(true); resetAssetForm(); }}
-                                className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 transform hover:scale-105"
+                                onClick={() => { resetTransactionForm(); setShowTransactionModal(true); }}
+                                className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 transform hover:scale-105 flex items-center"
                             >
-                                + เพิ่มสินทรัพย์
-                            </button>
-                            <button
-                                onClick={() => { setShowLiabilityModal(true); resetLiabilityForm(); }}
-                                className="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 transform hover:scale-105"
-                            >
-                                + เพิ่มหนี้สิน
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                                </svg>
+                                เพิ่มรายการใหม่
                             </button>
                         </div>
 
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-                            <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
-                                <h3 className="text-2xl font-semibold text-gray-700 mb-4">สัดส่วนสินทรัพย์</h3>
-                                {assetPieChartData.length > 0 ? (
-                                    <ResponsiveContainer width="100%" height={300}>
+                        {/* Income/Expense List by Month */}
+                        {sortedMonths.length > 0 ? (
+                            sortedMonths.map(monthKey => (
+                                <div key={monthKey} className="bg-white p-6 rounded-xl shadow-lg mb-6">
+                                    <h3 className="text-2xl font-bold text-gray-800 mb-4 border-b pb-2">{formatMonthYearForDisplay(monthKey)}</h3>
+                                    <div className="overflow-x-auto">
+                                        <table className="min-w-full bg-white rounded-lg overflow-hidden">
+                                            <thead className="bg-gray-100 border-b border-gray-200">
+                                                <tr>
+                                                    <th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">วันที่</th>
+                                                    <th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">ประเภท</th>
+                                                    <th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">หมวดหมู่</th>
+                                                    <th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">รายละเอียด</th>
+                                                    <th className="py-3 px-4 text-right text-sm font-semibold text-gray-600">จำนวนเงิน (บาท)</th>
+                                                    <th className="py-3 px-4 text-center text-sm font-semibold text-gray-600">การดำเนินการ</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {groupedIncomeExpenses[monthKey]
+                                                    .sort((a, b) => new Date(b.date) - new Date(a.date)) // Sort individual transactions by date
+                                                    .map(item => (
+                                                        <tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50">
+                                                            <td className="py-3 px-4 text-sm text-gray-700">{item.date}</td>
+                                                            <td className={`py-3 px-4 text-sm font-semibold ${item.type === 'income' ? 'text-green-600' : 'text-red-600'}`}>
+                                                                {item.type === 'income' ? 'รายรับ' : 'รายจ่าย'}
+                                                            </td>
+                                                            <td className="py-3 px-4 text-sm text-gray-700">{item.category}</td>
+                                                            <td className="py-3 px-4 text-sm text-gray-700">{item.description}</td>
+                                                            <td className="py-3 px-4 text-right text-sm font-semibold">
+                                                                {formatNumberWithCommas(item.amount)}
+                                                            </td>
+                                                            <td className="py-3 px-4 text-center text-sm">
+                                                                <button
+                                                                    onClick={() => editTransaction(item)}
+                                                                    className="text-blue-600 hover:text-blue-800 mr-3"
+                                                                    title="แก้ไข"
+                                                                >
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block" viewBox="0 0 20 20" fill="currentColor">
+                                                                        <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zm-3.106 5.106L9.293 12.5l1.414 1.414 1.414-1.414 1.414-1.414-2.828-2.828z" />
+                                                                        <path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd" />
+                                                                    </svg>
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => confirmDelete('income_expenses', item.id, `คุณแน่ใจหรือไม่ที่จะลบรายการรายรับ-รายจ่าย "${item.description}"?`)}
+                                                                    className="text-red-600 hover:text-red-800"
+                                                                    title="ลบ"
+                                                                >
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block" viewBox="0 0 20 20" fill="currentColor">
+                                                                        <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1zm2 3a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1zm0 3a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1z" clipRule="evenodd" />
+                                                                    </svg>
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            ))
+                        ) : (
+                            <div className="bg-white p-6 rounded-xl shadow-lg text-center text-gray-500">
+                                <p>ไม่มีข้อมูลรายรับ-รายจ่าย</p>
+                                <p>กด "เพิ่มรายการใหม่" เพื่อเริ่มต้น</p>
+                            </div>
+                        )}
+                    </section>
+                )}
+
+                {/* Assets & Liabilities Tab */}
+                {activeTab === 'assets-liabilities' && (
+                    <section className="space-y-8">
+                        <h2 className="text-4xl font-extrabold text-indigo-800 mb-6 text-center">สินทรัพย์และหนี้สิน</h2>
+
+                        {/* Asset Summary */}
+                        <div className="bg-white p-6 rounded-xl shadow-lg mb-6">
+                            <div className="flex justify-between items-center border-b pb-3 mb-4">
+                                <h3 className="text-2xl font-bold text-gray-800">สินทรัพย์ ({formatNumberWithCommas(totalAssets)} บาท)</h3>
+                                <button
+                                    onClick={() => { resetAssetForm(); setShowAssetModal(true); }}
+                                    className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200 flex items-center"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                                    </svg>
+                                    เพิ่มสินทรัพย์
+                                </button>
+                            </div>
+                            {assetPieChartData.length > 0 && (
+                                <div className="mb-4">
+                                    <ResponsiveContainer width="100%" height={200}>
                                         <PieChart>
                                             <Pie
                                                 data={assetPieChartData}
                                                 cx="50%"
                                                 cy="50%"
-                                                labelLine={false}
-                                                outerRadius={100}
+                                                outerRadius={80}
                                                 fill="#8884d8"
                                                 dataKey="value"
                                                 label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                                             >
                                                 {assetPieChartData.map((entry, index) => (
-                                                    <Cell key={`cell-asset-${index}`} fill={COOL_COLORS[index % COOL_COLORS.length]} />
+                                                    <Cell key={`cell-asset-${index}`} fill={WARM_COLORS[index % WARM_COLORS.length]} />
                                                 ))}
                                             </Pie>
-                                            <Tooltip formatter={(value) => `${value.toLocaleString('th-TH')} บาท`} />
+                                            <Tooltip formatter={(value) => `${formatNumberWithCommas(value)} บาท`} />
                                             <Legend />
                                         </PieChart>
                                     </ResponsiveContainer>
-                                ) : (
-                                    <p className="text-center text-gray-500 mt-10">ยังไม่มีข้อมูลสินทรัพย์</p>
-                                )}
+                                </div>
+                            )}
+                            <div className="overflow-x-auto">
+                                <table className="min-w-full bg-white rounded-lg overflow-hidden">
+                                    <thead className="bg-gray-100 border-b border-gray-200">
+                                        <tr>
+                                            <th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">ชื่อสินทรัพย์</th>
+                                            <th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">หมวดหมู่</th>
+                                            <th className="py-3 px-4 text-right text-sm font-semibold text-gray-600">มูลค่า (บาท)</th>
+                                            <th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">วันที่เพิ่ม</th>
+                                            <th className="py-3 px-4 text-center text-sm font-semibold text-gray-600">การดำเนินการ</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {assets.length > 0 ? (
+                                            assets.map(asset => (
+                                                <tr key={asset.id} className="border-b border-gray-100 hover:bg-gray-50">
+                                                    <td className="py-3 px-4 text-sm text-gray-700">{asset.name}</td>
+                                                    <td className="py-3 px-4 text-sm text-gray-700">{asset.category}</td>
+                                                    <td className="py-3 px-4 text-right text-sm font-semibold">{formatNumberWithCommas(asset.value)}</td>
+                                                    <td className="py-3 px-4 text-sm text-gray-700">{asset.dateAdded}</td>
+                                                    <td className="py-3 px-4 text-center text-sm">
+                                                        <button
+                                                            onClick={() => editAsset(asset)}
+                                                            className="text-blue-600 hover:text-blue-800 mr-3"
+                                                            title="แก้ไข"
+                                                        >
+                                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block" viewBox="0 0 20 20" fill="currentColor">
+                                                                <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zm-3.106 5.106L9.293 12.5l1.414 1.414 1.414-1.414 1.414-1.414-2.828-2.828z" />
+                                                                <path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd" />
+                                                            </svg>
+                                                        </button>
+                                                        <button
+                                                            onClick={() => confirmDelete('assets', asset.id, `คุณแน่ใจหรือไม่ที่จะลบสินทรัพย์ "${asset.name}"?`)}
+                                                            className="text-red-600 hover:text-red-800"
+                                                            title="ลบ"
+                                                        >
+                                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block" viewBox="0 0 20 20" fill="currentColor">
+                                                                <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1zm2 3a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1zm0 3a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1z" clipRule="evenodd" />
+                                                            </svg>
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        ) : (
+                                            <tr>
+                                                <td colSpan="5" className="py-3 px-4 text-center text-gray-500">ไม่มีข้อมูลสินทรัพย์</td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
                             </div>
-                            <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
-                                <h3 className="text-2xl font-semibold text-gray-700 mb-4">สัดส่วนหนี้สิน</h3>
-                                {liabilityPieChartData.length > 0 ? (
-                                    <ResponsiveContainer width="100%" height={300}>
+                        </div>
+
+                        {/* Liabilities Summary */}
+                        <div className="bg-white p-6 rounded-xl shadow-lg">
+                            <div className="flex justify-between items-center border-b pb-3 mb-4">
+                                <h3 className="text-2xl font-bold text-gray-800">หนี้สิน ({formatNumberWithCommas(totalLiabilities)} บาท)</h3>
+                                <button
+                                    onClick={() => { resetLiabilityForm(); setShowLiabilityModal(true); }}
+                                    className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200 flex items-center"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                                    </svg>
+                                    เพิ่มหนี้สิน
+                                </button>
+                            </div>
+                            {liabilityPieChartData.length > 0 && (
+                                <div className="mb-4">
+                                    <ResponsiveContainer width="100%" height={200}>
                                         <PieChart>
                                             <Pie
                                                 data={liabilityPieChartData}
                                                 cx="50%"
                                                 cy="50%"
-                                                labelLine={false}
-                                                outerRadius={100}
+                                                outerRadius={80}
                                                 fill="#8884d8"
                                                 dataKey="value"
                                                 label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                                             >
                                                 {liabilityPieChartData.map((entry, index) => (
-                                                    <Cell key={`cell-liability-${index}`} fill={WARM_COLORS[index % WARM_COLORS.length]} />
+                                                    <Cell key={`cell-liability-${index}`} fill={COOL_COLORS[index % COOL_COLORS.length]} />
                                                 ))}
                                             </Pie>
-                                            <Tooltip formatter={(value) => `${value.toLocaleString('th-TH')} บาท`} />
+                                            <Tooltip formatter={(value) => `${formatNumberWithCommas(value)} บาท`} />
                                             <Legend />
                                         </PieChart>
                                     </ResponsiveContainer>
-                                ) : (
-                                    <p className="text-center text-gray-500 mt-10">ยังไม่มีข้อมูลหนี้สิน</p>
-                                )}
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                            {/* Assets List */}
-                            <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
-                                <h3 className="text-2xl font-semibold text-gray-700 mb-4">สินทรัพย์ ({totalAssets.toLocaleString('th-TH')} บาท)</h3>
-                                {assets.length === 0 ? (
-                                    <p className="text-center text-gray-500 py-10">ยังไม่มีสินทรัพย์</p>
-                                ) : (
-                                    <div className="overflow-x-auto">
-                                        <table className="min-w-full divide-y divide-gray-200">
-                                            <thead className="bg-gray-50">
-                                                <tr>
-                                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                        ชื่อ
-                                                    </th>
-                                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                        หมวดหมู่
-                                                    </th>
-                                                    <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                        มูลค่า (บาท)
-                                                    </th>
-                                                    <th scope="col" className="relative px-6 py-3">
-                                                        <span className="sr-only">แก้ไข/ลบ</span>
-                                                    </th>
+                                </div>
+                            )}
+                            <div className="overflow-x-auto">
+                                <table className="min-w-full bg-white rounded-lg overflow-hidden">
+                                    <thead className="bg-gray-100 border-b border-gray-200">
+                                        <tr>
+                                            <th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">ชื่อหนี้สิน</th>
+                                            <th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">หมวดหมู่</th>
+                                            <th className="py-3 px-4 text-right text-sm font-semibold text-gray-600">จำนวนเงิน (บาท)</th>
+                                            <th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">วันที่เพิ่ม</th>
+                                            <th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">ครบกำหนด</th>
+                                            <th className="py-3 px-4 text-center text-sm font-semibold text-gray-600">การดำเนินการ</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {liabilities.length > 0 ? (
+                                            liabilities.map(liability => (
+                                                <tr key={liability.id} className="border-b border-gray-100 hover:bg-gray-50">
+                                                    <td className="py-3 px-4 text-sm text-gray-700">{liability.name}</td>
+                                                    <td className="py-3 px-4 text-sm text-gray-700">{liability.category}</td>
+                                                    <td className="py-3 px-4 text-right text-sm font-semibold">{formatNumberWithCommas(liability.amount)}</td>
+                                                    <td className="py-3 px-4 text-sm text-gray-700">{liability.dateAdded}</td>
+                                                    <td className="py-3 px-4 text-sm text-gray-700">{liability.dueDate}</td>
+                                                    <td className="py-3 px-4 text-center text-sm">
+                                                        <button
+                                                            onClick={() => editLiability(liability)}
+                                                            className="text-blue-600 hover:text-blue-800 mr-3"
+                                                            title="แก้ไข"
+                                                        >
+                                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block" viewBox="0 0 20 20" fill="currentColor">
+                                                                <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zm-3.106 5.106L9.293 12.5l1.414 1.414 1.414-1.414 1.414-1.414-2.828-2.828z" />
+                                                                <path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd" />
+                                                            </svg>
+                                                        </button>
+                                                        <button
+                                                            onClick={() => confirmDelete('liabilities', liability.id, `คุณแน่ใจหรือไม่ที่จะลบหนี้สิน "${liability.name}"?`)}
+                                                            className="text-red-600 hover:text-red-800"
+                                                            title="ลบ"
+                                                        >
+                                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block" viewBox="0 0 20 20" fill="currentColor">
+                                                                <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1zm2 3a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1zm0 3a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1z" clipRule="evenodd" />
+                                                            </svg>
+                                                        </button>
+                                                    </td>
                                                 </tr>
-                                            </thead>
-                                            <tbody className="bg-white divide-y divide-gray-200">
-                                                {assets.map((item) => (
-                                                    <tr key={item.id}>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                                            {item.name}
-                                                        </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                            {item.category}
-                                                        </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
-                                                            {parseFloat(item.value).toLocaleString('th-TH')}
-                                                        </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                                            <button
-                                                                onClick={() => editAsset(item)}
-                                                                className="text-indigo-600 hover:text-indigo-900 mr-3"
-                                                            >
-                                                                แก้ไข
-                                                            </button>
-                                                            <button
-                                                                onClick={() => confirmDelete('assets', item.id, `คุณแน่ใจหรือไม่ที่ต้องการลบสินทรัพย์ "${item.name}"?`)}
-                                                                className="text-red-600 hover:text-red-900"
-                                                            >
-                                                                ลบ
-                                                            </button>
-                                                        </td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Liabilities List */}
-                            <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
-                                <h3 className="text-2xl font-semibold text-gray-700 mb-4">หนี้สิน ({totalLiabilities.toLocaleString('th-TH')} บาท)</h3>
-                                {liabilities.length === 0 ? (
-                                    <p className="text-center text-gray-500 py-10">ยังไม่มีหนี้สิน</p>
-                                ) : (
-                                    <div className="overflow-x-auto">
-                                        <table className="min-w-full divide-y divide-gray-200">
-                                            <thead className="bg-gray-50">
-                                                <tr>
-                                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                        ชื่อ
-                                                    </th>
-                                                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                        หมวดหมู่
-                                                    </th>
-                                                    <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                        จำนวนเงิน (บาท)
-                                                    </th>
-                                                    <th scope="col" className="relative px-6 py-3">
-                                                        <span className="sr-only">แก้ไข/ลบ</span>
-                                                    </th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="bg-white divide-y divide-gray-200">
-                                                {liabilities.map((item) => (
-                                                    <tr key={item.id}>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                                                            {item.name}
-                                                        </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                            {item.category}
-                                                        </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
-                                                            {parseFloat(item.amount).toLocaleString('th-TH')}
-                                                        </td>
-                                                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                                            <button
-                                                                onClick={() => editLiability(item)}
-                                                                className="text-indigo-600 hover:text-indigo-900 mr-3"
-                                                            >
-                                                                แก้ไข
-                                                            </button>
-                                                            <button
-                                                                onClick={() => confirmDelete('liabilities', item.id, `คุณแน่ใจหรือไม่ที่ต้องการลบหนี้สิน "${item.name}"?`)}
-                                                                className="text-red-600 hover:text-red-900"
-                                                            >
-                                                                ลบ
-                                                            </button>
-                                                        </td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                )}
+                                            ))
+                                        ) : (
+                                            <tr>
+                                                <td colSpan="6" className="py-3 px-4 text-center text-gray-500">ไม่มีข้อมูลหนี้สิน</td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
                     </section>
@@ -1167,57 +1117,70 @@ function App() {
 
                 {/* Goals Tab */}
                 {activeTab === 'goals' && (
-                    <section>
-                        <h2 className="text-3xl font-extrabold text-indigo-800 mb-6 text-center">เป้าหมายทางการเงิน</h2>
-                        <div className="flex justify-center mb-6">
+                    <section className="space-y-8">
+                        <h2 className="text-4xl font-extrabold text-indigo-800 mb-6 text-center">เป้าหมายทางการเงิน</h2>
+
+                        {/* Add Goal Button */}
+                        <div className="flex justify-end mb-6">
                             <button
-                                onClick={() => { setShowGoalModal(true); resetGoalForm(); }}
-                                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 transform hover:scale-105"
+                                onClick={() => { resetGoalForm(); setShowGoalModal(true); }}
+                                className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 transform hover:scale-105 flex items-center"
                             >
-                                + เพิ่มเป้าหมายใหม่
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                                </svg>
+                                เพิ่มเป้าหมาย
                             </button>
                         </div>
 
-                        <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
-                            {goals.length === 0 ? (
-                                <p className="text-center text-gray-500 py-10">ยังไม่มีเป้าหมายทางการเงิน</p>
-                            ) : (
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                                    {goals.map((goal) => {
-                                        const progress = (goal.currentAmount / goal.targetAmount) * 100;
-                                        return (
-                                            <div key={goal.id} className="bg-gray-50 p-6 rounded-xl shadow-md border border-blue-100 flex flex-col justify-between">
-                                                <div>
-                                                    <h3 className="text-xl font-semibold text-indigo-700 mb-2">{goal.name}</h3>
-                                                    <p className="text-gray-600">เป้าหมาย: <span className="font-bold">{parseFloat(goal.targetAmount).toLocaleString('th-TH')} บาท</span></p>
-                                                    <p className="text-gray-600">ปัจจุบัน: <span className="font-bold">{parseFloat(goal.currentAmount).toLocaleString('th-TH')} บาท</span></p>
-                                                    <p className="text-gray-600">ประเภท: <span className="font-bold">{goal.type === 'saving' ? 'ออมเงิน' : 'ปลดหนี้'}</span></p>
-                                                    {goal.dueDate && <p className="text-gray-600">กำหนด: <span className="font-bold">{goal.dueDate}</span></p>}
-                                                </div>
-                                                <div className="w-full bg-gray-200 rounded-full h-2.5 mt-4">
-                                                    <div
-                                                        className="bg-indigo-600 h-2.5 rounded-full"
-                                                        style={{ width: `${Math.min(100, progress)}%` }}
-                                                    ></div>
-                                                </div>
-                                                <p className="text-sm text-gray-500 mt-2 text-right">{progress.toFixed(1)}% บรรลุ</p>
-                                                <div className="flex justify-end space-x-3 mt-4">
-                                                    <button
-                                                        onClick={() => editGoal(goal)}
-                                                        className="text-indigo-600 hover:text-indigo-900 text-sm"
-                                                    >
-                                                        แก้ไข
-                                                    </button>
-                                                    <button
-                                                        onClick={() => confirmDelete('goals', goal.id, `คุณแน่ใจหรือไม่ที่ต้องการลบเป้าหมาย "${goal.name}"?`)}
-                                                        className="text-red-600 hover:text-red-900"
-                                                    >
-                                                        ลบ
-                                                    </button>
-                                                </div>
+                        {/* Goals List */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {goals.length > 0 ? (
+                                goals.map(goal => (
+                                    <div key={goal.id} className="bg-white p-6 rounded-xl shadow-lg border border-purple-200 flex flex-col justify-between transform hover:scale-105 transition-transform duration-300">
+                                        <div>
+                                            <h3 className="text-xl font-bold text-gray-800 mb-2">{goal.name}</h3>
+                                            <p className="text-gray-600 mb-1">ประเภท: <span className="font-semibold">{goal.type === 'saving' ? 'ออมเงิน' : 'ลงทุน'}</span></p>
+                                            <p className="text-gray-600 mb-1">เป้าหมาย: <span className="font-semibold text-indigo-600">{formatNumberWithCommas(goal.targetAmount)} บาท</span></p>
+                                            <p className="text-gray-600 mb-1">ปัจจุบัน: <span className="font-semibold text-green-600">{formatNumberWithCommas(goal.currentAmount)} บาท</span></p>
+                                            <p className="text-gray-600 mb-3">ครบกำหนด: <span className="font-semibold">{goal.dueDate}</span></p>
+                                            <div className="w-full bg-gray-200 rounded-full h-2.5 mb-2">
+                                                <div
+                                                    className="bg-purple-600 h-2.5 rounded-full"
+                                                    style={{ width: `${Math.min(100, (goal.currentAmount / goal.targetAmount) * 100)}%` }}
+                                                ></div>
                                             </div>
-                                        );
-                                    })}
+                                            <p className="text-sm text-gray-500 text-right">
+                                                {((goal.currentAmount / goal.targetAmount) * 100).toFixed(2)}%
+                                            </p>
+                                        </div>
+                                        <div className="flex justify-end mt-4 space-x-2">
+                                            <button
+                                                onClick={() => editGoal(goal)}
+                                                className="text-blue-600 hover:text-blue-800"
+                                                title="แก้ไข"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block" viewBox="0 0 20 20" fill="currentColor">
+                                                    <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zm-3.106 5.106L9.293 12.5l1.414 1.414 1.414-1.414 1.414-1.414-2.828-2.828z" />
+                                                    <path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd" />
+                                                </svg>
+                                            </button>
+                                            <button
+                                                onClick={() => confirmDelete('goals', goal.id, `คุณแน่ใจหรือไม่ที่จะลบเป้าหมาย "${goal.name}"?`)}
+                                                className="text-red-600 hover:text-red-800"
+                                                title="ลบ"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block" viewBox="0 0 20 20" fill="currentColor">
+                                                    <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1zm2 3a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1zm0 3a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1z" clipRule="evenodd" />
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))
+                            ) : (
+                                <div className="col-span-full bg-white p-6 rounded-xl shadow-lg text-center text-gray-500">
+                                    <p>ไม่มีข้อมูลเป้าหมาย</p>
+                                    <p>กด "เพิ่มเป้าหมาย" เพื่อเริ่มต้น</p>
                                 </div>
                             )}
                         </div>
@@ -1225,13 +1188,8 @@ function App() {
                 )}
             </main>
 
-            {/* Transaction Modal */}
-            <Modal
-                key="transaction-modal"
-                show={showTransactionModal}
-                onClose={() => { setShowTransactionModal(false); resetTransactionForm(); }}
-                title={currentEditingItem.current ? 'แก้ไขรายการ' : 'เพิ่มรายการรายรับ-รายจ่าย'}
-            >
+            {/* Modals */}
+            <Modal show={showTransactionModal} onClose={() => { setShowTransactionModal(false); resetTransactionForm(); }} title={currentEditingItem.current ? "แก้ไขรายการ" : "เพิ่มรายการใหม่"}>
                 <form onSubmit={handleAddOrUpdateTransaction} className="space-y-4">
                     <div>
                         <label htmlFor="transactionType" className="block text-sm font-medium text-gray-700">ประเภท</label>
@@ -1250,13 +1208,13 @@ function App() {
                     <div>
                         <label htmlFor="transactionAmount" className="block text-sm font-medium text-gray-700">จำนวนเงิน (บาท)</label>
                         <input
-                            type="text"
+                            type="text" // Use text to allow formatted input
                             id="transactionAmount"
                             name="amount"
                             value={formatNumberWithCommas(newTransaction.amount)}
                             onChange={handleTransactionChange}
                             className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                            placeholder="เช่น 500"
+                            placeholder="เช่น 1,000.00"
                             required
                         />
                     </div>
@@ -1269,7 +1227,7 @@ function App() {
                             value={newTransaction.category}
                             onChange={handleTransactionChange}
                             className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                            placeholder="เช่น อาหาร, ค่าเดินทาง, เงินเดือน"
+                            placeholder="เช่น อาหาร, เงินเดือน"
                             required
                         />
                     </div>
@@ -1282,7 +1240,7 @@ function App() {
                             value={newTransaction.description}
                             onChange={handleTransactionChange}
                             className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                            placeholder="เช่น ค่ากาแฟ, ค่ารถเมล์"
+                            placeholder="เช่น ค่ากาแฟ, โบนัส"
                         />
                     </div>
                     <div>
@@ -1309,19 +1267,13 @@ function App() {
                             type="submit"
                             className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200"
                         >
-                            {currentEditingItem.current ? 'บันทึกการแก้ไข' : 'เพิ่มรายการ'}
+                            {currentEditingItem.current ? "บันทึกการแก้ไข" : "เพิ่มรายการ"}
                         </button>
                     </div>
                 </form>
             </Modal>
 
-            {/* Asset Modal */}
-            <Modal
-                key="asset-modal"
-                show={showAssetModal}
-                onClose={() => { setShowAssetModal(false); resetAssetForm(); }}
-                title={currentEditingItem.current ? 'แก้ไขสินทรัพย์' : 'เพิ่มสินทรัพย์ใหม่'}
-            >
+            <Modal show={showAssetModal} onClose={() => { setShowAssetModal(false); resetAssetForm(); }} title={currentEditingItem.current ? "แก้ไขสินทรัพย์" : "เพิ่มสินทรัพย์ใหม่"}>
                 <form onSubmit={handleAddOrUpdateAsset} className="space-y-4">
                     <div>
                         <label htmlFor="assetName" className="block text-sm font-medium text-gray-700">ชื่อสินทรัพย์</label>
@@ -1332,20 +1284,20 @@ function App() {
                             value={newAsset.name}
                             onChange={handleAssetChange}
                             className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                            placeholder="เช่น เงินฝาก, หุ้น, อสังหาฯ"
+                            placeholder="เช่น บ้าน, รถยนต์"
                             required
                         />
                     </div>
                     <div>
                         <label htmlFor="assetValue" className="block text-sm font-medium text-gray-700">มูลค่า (บาท)</label>
                         <input
-                            type="text"
+                            type="text" // Use text to allow formatted input
                             id="assetValue"
                             name="value"
                             value={formatNumberWithCommas(newAsset.value)}
                             onChange={handleAssetChange}
                             className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                            placeholder="เช่น 100000"
+                            placeholder="เช่น 5,000,000"
                             required
                         />
                     </div>
@@ -1358,12 +1310,12 @@ function App() {
                             value={newAsset.category}
                             onChange={handleAssetChange}
                             className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                            placeholder="เช่น เงินสด, การลงทุน, อสังหาริมทรัพย์"
+                            placeholder="เช่น อสังหาริมทรัพย์, ยานพาหนะ"
                             required
                         />
                     </div>
                     <div>
-                        <label htmlFor="assetDate" className="block text-sm font-medium text-gray-700">วันที่เพิ่ม/อัปเดต</label>
+                        <label htmlFor="assetDate" className="block text-sm font-medium text-gray-700">วันที่เพิ่ม</label>
                         <input
                             type="date"
                             id="assetDate"
@@ -1384,21 +1336,15 @@ function App() {
                         </button>
                         <button
                             type="submit"
-                            className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200"
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200"
                         >
-                            {currentEditingItem.current ? 'บันทึกการแก้ไข' : 'เพิ่มสินทรัพย์'}
+                            {currentEditingItem.current ? "บันทึกการแก้ไข" : "เพิ่มสินทรัพย์"}
                         </button>
                     </div>
                 </form>
             </Modal>
 
-            {/* Liability Modal */}
-            <Modal
-                key="liability-modal"
-                show={showLiabilityModal}
-                onClose={() => { setShowLiabilityModal(false); resetLiabilityForm(); }}
-                title={currentEditingItem.current ? 'แก้ไขหนี้สิน' : 'เพิ่มหนี้สินใหม่'}
-            >
+            <Modal show={showLiabilityModal} onClose={() => { setShowLiabilityModal(false); resetLiabilityForm(); }} title={currentEditingItem.current ? "แก้ไขหนี้สิน" : "เพิ่มหนี้สินใหม่"}>
                 <form onSubmit={handleAddOrUpdateLiability} className="space-y-4">
                     <div>
                         <label htmlFor="liabilityName" className="block text-sm font-medium text-gray-700">ชื่อหนี้สิน</label>
@@ -1409,20 +1355,20 @@ function App() {
                             value={newLiability.name}
                             onChange={handleLiabilityChange}
                             className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                            placeholder="เช่น สินเชื่อบ้าน, บัตรเครดิต"
+                            placeholder="เช่น หนี้บัตรเครดิต, เงินกู้บ้าน"
                             required
                         />
                     </div>
                     <div>
                         <label htmlFor="liabilityAmount" className="block text-sm font-medium text-gray-700">จำนวนเงิน (บาท)</label>
                         <input
-                            type="text"
+                            type="text" // Use text to allow formatted input
                             id="liabilityAmount"
                             name="amount"
                             value={formatNumberWithCommas(newLiability.amount)}
                             onChange={handleLiabilityChange}
                             className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                            placeholder="เช่น 50000"
+                            placeholder="เช่น 100,000"
                             required
                         />
                     </div>
@@ -1435,12 +1381,12 @@ function App() {
                             value={newLiability.category}
                             onChange={handleLiabilityChange}
                             className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                            placeholder="เช่น สินเชื่อ, บัตรเครดิต"
+                            placeholder="เช่น หนี้สินระยะยาว, หนี้สินระยะสั้น"
                             required
                         />
                     </div>
                     <div>
-                        <label htmlFor="liabilityDate" className="block text-sm font-medium text-gray-700">วันที่เพิ่ม/อัปเดต</label>
+                        <label htmlFor="liabilityDate" className="block text-sm font-medium text-gray-700">วันที่เพิ่ม</label>
                         <input
                             type="date"
                             id="liabilityDate"
@@ -1452,7 +1398,7 @@ function App() {
                         />
                     </div>
                     <div>
-                        <label htmlFor="liabilityDueDate" className="block text-sm font-medium text-gray-700">วันครบกำหนด (ไม่บังคับ)</label>
+                        <label htmlFor="liabilityDueDate" className="block text-sm font-medium text-gray-700">ครบกำหนด (ไม่บังคับ)</label>
                         <input
                             type="date"
                             id="liabilityDueDate"
@@ -1472,21 +1418,15 @@ function App() {
                         </button>
                         <button
                             type="submit"
-                            className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200"
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200"
                         >
-                            {currentEditingItem.current ? 'บันทึกการแก้ไข' : 'เพิ่มหนี้สิน'}
+                            {currentEditingItem.current ? "บันทึกการแก้ไข" : "เพิ่มหนี้สิน"}
                         </button>
                     </div>
                 </form>
             </Modal>
 
-            {/* Goal Modal */}
-            <Modal
-                key="goal-modal"
-                show={showGoalModal}
-                onClose={() => { setShowGoalModal(false); resetGoalForm(); }}
-                title={currentEditingItem.current ? 'แก้ไขเป้าหมาย' : 'เพิ่มเป้าหมายใหม่'}
-            >
+            <Modal show={showGoalModal} onClose={() => { setShowGoalModal(false); resetGoalForm(); }} title={currentEditingItem.current ? "แก้ไขเป้าหมาย" : "เพิ่มเป้าหมายใหม่"}>
                 <form onSubmit={handleAddOrUpdateGoal} className="space-y-4">
                     <div>
                         <label htmlFor="goalName" className="block text-sm font-medium text-gray-700">ชื่อเป้าหมาย</label>
@@ -1497,7 +1437,45 @@ function App() {
                             value={newGoal.name}
                             onChange={handleGoalChange}
                             className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                            placeholder="เช่น ออมเงินดาวน์บ้าน, ปลดหนี้บัตรเครดิต"
+                            placeholder="เช่น เงินดาวน์บ้าน, ทริปเที่ยว"
+                            required
+                        />
+                    </div>
+                    <div>
+                        <label htmlFor="goalTargetAmount" className="block text-sm font-medium text-gray-700">จำนวนเงินเป้าหมาย (บาท)</label>
+                        <input
+                            type="text" // Use text to allow formatted input
+                            id="goalTargetAmount"
+                            name="targetAmount"
+                            value={formatNumberWithCommas(newGoal.targetAmount)}
+                            onChange={handleGoalChange}
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                            placeholder="เช่น 100,000"
+                            required
+                        />
+                    </div>
+                    <div>
+                        <label htmlFor="goalCurrentAmount" className="block text-sm font-medium text-gray-700">จำนวนเงินปัจจุบัน (บาท)</label>
+                        <input
+                            type="text" // Use text to allow formatted input
+                            id="goalCurrentAmount"
+                            name="currentAmount"
+                            value={formatNumberWithCommas(newGoal.currentAmount)}
+                            onChange={handleGoalChange}
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                            placeholder="เช่น 10,000"
+                            required
+                        />
+                    </div>
+                    <div>
+                        <label htmlFor="goalDueDate" className="block text-sm font-medium text-gray-700">ครบกำหนด</label>
+                        <input
+                            type="date"
+                            id="goalDueDate"
+                            name="dueDate"
+                            value={newGoal.dueDate}
+                            onChange={handleGoalChange}
+                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                             required
                         />
                     </div>
@@ -1512,44 +1490,8 @@ function App() {
                             required
                         >
                             <option value="saving">ออมเงิน</option>
-                            <option value="debt repayment">ปลดหนี้</option>
+                            <option value="investment">ลงทุน</option>
                         </select>
-                    </div>
-                    <div>
-                        <label htmlFor="goalTargetAmount" className="block text-sm font-medium text-gray-700">จำนวนเงินเป้าหมาย (บาท)</label>
-                        <input
-                            type="text"
-                            id="goalTargetAmount"
-                            name="targetAmount"
-                            value={formatNumberWithCommas(newGoal.targetAmount)}
-                            onChange={handleGoalChange}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                            placeholder="เช่น 1000000"
-                            required
-                        />
-                    </div>
-                    <div>
-                        <label htmlFor="goalCurrentAmount" className="block text-sm font-medium text-gray-700">จำนวนเงินปัจจุบัน (บาท)</label>
-                        <input
-                            type="text"
-                            id="goalCurrentAmount"
-                            name="currentAmount"
-                            value={formatNumberWithCommas(newGoal.currentAmount)}
-                            onChange={handleGoalChange}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                            placeholder="เช่น 0"
-                        />
-                    </div>
-                    <div>
-                        <label htmlFor="goalDueDate" className="block text-sm font-medium text-gray-700">วันครบกำหนด (ไม่บังคับ)</label>
-                        <input
-                            type="date"
-                            id="goalDueDate"
-                            name="dueDate"
-                            value={newGoal.dueDate}
-                            onChange={handleGoalChange}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                        />
                     </div>
                     <div className="flex justify-end space-x-3 mt-6">
                         <button
@@ -1563,13 +1505,12 @@ function App() {
                             type="submit"
                             className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200"
                         >
-                            {currentEditingItem.current ? 'บันทึกการแก้ไข' : 'เพิ่มเป้าหมาย'}
+                            {currentEditingItem.current ? "บันทึกการแก้ไข" : "เพิ่มเป้าหมาย"}
                         </button>
                     </div>
                 </form>
             </Modal>
 
-            {/* Confirmation Modal */}
             <ConfirmModal
                 show={showConfirmModal}
                 message={confirmMessage}
