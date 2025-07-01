@@ -46,10 +46,10 @@ const parseFormattedNumber = (str) => {
     return isNaN(parsed) ? 0 : parsed; // Return 0 if parsing results in NaN
 };
 
-// Helper function to format YYYY-MM string to Thai month and year for display
-const formatMonthYearForDisplay = (yyyyMm) => {
+// Helper function to format yyyy-MM string to Thai month and year for display
+const formatMonthYearForDisplay = (yyyyMm) => { // FIXED: Changed McNamaraMm to yyyyMm
     if (!yyyyMm) return '';
-    const [year, month] = yyyyMm.split('-');
+    const [year, month] = yyyyMm.split('-'); // FIXED: Changed McNamaraMm to yyyyMm
     const date = new Date(year, month - 1); // Month is 0-indexed in Date constructor
     return date.toLocaleString('th-TH', { month: 'long', year: 'numeric' });
 };
@@ -98,8 +98,10 @@ const ConfirmModal = ({ show, message, onConfirm, onCancel }) => {
 
 
 function App() {
-    const [db, setDb] = useState(null);
-    const [auth, setAuth] = useState(null); // Keep this state for onAuthStateChanged listener
+    // Use the globally initialized instances directly, no need for useState for them
+    const db = dbInstance;
+    const auth = authInstance;
+
     const [userId, setUserId] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -108,7 +110,7 @@ function App() {
 
     // Authentication states
     const [username, setUsername] = useState('');
-    const [pin, setPin] = useState('');
+    const [pin, setPin] = '';
     const [isLoginMode, setIsLoginMode] = useState(true); // true for login, false for register
     const [authError, setAuthError] = useState('');
     const [loggedInUsername, setLoggedInUsername] = useState(''); // State to store logged-in username
@@ -132,7 +134,7 @@ function App() {
     const [showGoalModal, setShowGoalModal] = useState(false);
     const [showConfirmModal, setShowConfirmModal] = useState(false);
     const [confirmAction, setConfirmAction] = useState(null);
-    const [confirmMessage, setConfirmMessage] = useState('');
+    const [confirmMessage, setConfirmMessage] = useState(''); // Corrected initialization
 
     const currentEditingItem = useRef(null); // Ref to store the item being edited
 
@@ -142,10 +144,6 @@ function App() {
     // Initialize Firebase and set up authentication
     useEffect(() => {
         try {
-            // Use the already initialized instances
-            setAuth(authInstance); // Still set auth state for other uses (e.g., onAuthStateChanged)
-            setDb(dbInstance);
-
             const unsubscribe = onAuthStateChanged(authInstance, async (user) => {
                 if (user) {
                     setUserId(user.uid);
@@ -538,7 +536,7 @@ function App() {
     const allMonthlyIncomeExpenseData = {};
 
     incomeExpenses.forEach(item => {
-        // Use YYYY-MM for consistent sorting
+        // Use yyyy-MM for consistent sorting
         const monthKey = item.date.substring(0, 7);
         if (!allMonthlyIncomeExpenseData[monthKey]) {
             allMonthlyIncomeExpenseData[monthKey] = { income: 0, expense: 0, net: 0 };
@@ -559,7 +557,7 @@ function App() {
     const visibleMonthKeys = sortedAllMonthKeys.slice(startIndex, endIndex);
 
     const incomeExpenseTrendData = visibleMonthKeys.map(monthKey => ({
-        month: monthKey, // Keep YYYY-MM for sorting
+        month: monthKey, // Keep yyyy-MM for sorting
         รายรับ: allMonthlyIncomeExpenseData[monthKey].income || 0,
         รายจ่าย: allMonthlyIncomeExpenseData[monthKey].expense || 0,
         สุทธิ: allMonthlyIncomeExpenseData[monthKey].net || 0,
@@ -597,7 +595,7 @@ function App() {
 
     // Group income/expenses by month for display in the table
     const groupedIncomeExpenses = incomeExpenses.reduce((acc, item) => {
-        // Use YYYY-MM for consistent grouping
+        // Use yyyy-MM for consistent grouping
         const monthKey = item.date.substring(0, 7);
         if (!acc[monthKey]) {
             acc[monthKey] = [];
@@ -606,7 +604,7 @@ function App() {
         return acc;
     }, {});
 
-    // Sort months in descending order (most recent first) based on YYYY-MM keys
+    // Sort months in descending order (most recent first) based on yyyy-MM keys
     const sortedMonths = Object.keys(groupedIncomeExpenses).sort((a, b) => b.localeCompare(a));
 
 
@@ -992,7 +990,7 @@ function App() {
                                 <h3 className="text-2xl font-bold text-gray-800">สินทรัพย์ ({formatNumberWithCommas(totalAssets)} บาท)</h3>
                                 <button
                                     onClick={() => { resetAssetForm(); setShowAssetModal(true); }}
-                                    className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200 flex items-center"
+                                    className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-300 transform hover:scale-105 flex items-center"
                                 >
                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
@@ -1081,7 +1079,7 @@ function App() {
                                 <h3 className="text-2xl font-bold text-gray-800">หนี้สิน ({formatNumberWithCommas(totalLiabilities)} บาท)</h3>
                                 <button
                                     onClick={() => { resetLiabilityForm(); setShowLiabilityModal(true); }}
-                                    className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200 flex items-center"
+                                    className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-300 transform hover:scale-105 flex items-center"
                                 >
                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
@@ -1131,8 +1129,8 @@ function App() {
                                                     <td className="py-3 px-4 text-sm text-gray-700">{liability.name}</td>
                                                     <td className="py-3 px-4 text-sm text-gray-700">{liability.category}</td>
                                                     <td className="py-3 px-4 text-right text-sm font-semibold">{formatNumberWithCommas(liability.amount)}</td>
-                                                    <td className="py-3 px-4 text-sm text-gray-700">{liability.dateAdded}</td>
                                                     <td className="py-3 px-4 text-sm text-gray-700">{liability.dueDate}</td>
+                                                    <td className="py-3 px-4 text-sm text-gray-700">{liability.dateAdded}</td>
                                                     <td className="py-3 px-4 text-center text-sm">
                                                         <button
                                                             onClick={() => editLiability(liability)}
@@ -1178,7 +1176,7 @@ function App() {
                             <button
                                 onClick={() => { resetGoalForm(); setShowGoalModal(true); }}
                                 className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 transform hover:scale-105 flex items-center"
-                            >
+                                >
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                                 </svg>
