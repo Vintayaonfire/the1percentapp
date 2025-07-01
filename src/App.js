@@ -110,7 +110,7 @@ function App() {
 
     // Authentication states
     const [username, setUsername] = useState('');
-    const [pin, setPin] = '';
+    const [pin, setPin] = useState('');
     const [isLoginMode, setIsLoginMode] = useState(true); // true for login, false for register
     const [authError, setAuthError] = useState('');
     const [loggedInUsername, setLoggedInUsername] = useState(''); // State to store logged-in username
