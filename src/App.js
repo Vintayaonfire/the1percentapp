@@ -46,7 +46,7 @@ const parseFormattedNumber = (str) => {
     return isNaN(parsed) ? 0 : parsed; // Return 0 if parsing results in NaN
 };
 
-// Helper function to format McNamara-MM string to Thai month and year for display
+// Helper function to format YYYY-MM string to Thai month and year for display
 const formatMonthYearForDisplay = (yyyyMm) => {
     if (!yyyyMm) return '';
     const [year, month] = yyyyMm.split('-');
@@ -111,7 +111,7 @@ function App() {
     const [pin, setPin] = useState('');
     const [isLoginMode, setIsLoginMode] = useState(true); // true for login, false for register
     const [authError, setAuthError] = useState('');
-
+    const [loggedInUsername, setLoggedInUsername] = useState(''); // State to store logged-in username
 
     // Data states
     const [incomeExpenses, setIncomeExpenses] = useState([]);
@@ -136,6 +136,9 @@ function App() {
 
     const currentEditingItem = useRef(null); // Ref to store the item being edited
 
+    // New state for selected month in Income/Expense tab
+    const [selectedMonth, setSelectedMonth] = useState('');
+
     // Initialize Firebase and set up authentication
     useEffect(() => {
         try {
@@ -146,9 +149,15 @@ function App() {
             const unsubscribe = onAuthStateChanged(authInstance, async (user) => {
                 if (user) {
                     setUserId(user.uid);
+                    // Extract username from email if it's in the dummy domain format
+                    const displayUsername = user.email.endsWith('@financeapp.com')
+                        ? user.email.substring(0, user.email.indexOf('@financeapp.com'))
+                        : user.email;
+                    setLoggedInUsername(displayUsername); // Set the logged-in username
                     setAuthError(''); // Clear auth errors on successful login
                 } else {
                     setUserId(null);
+                    setLoggedInUsername(''); // Clear username on logout
                 }
                 setLoading(false);
             });
@@ -203,6 +212,18 @@ function App() {
         };
     }, [db, userId, appId]); // appId is a constant, can be excluded from dependencies for useEffect
 
+    // Set initial selectedMonth when incomeExpenses data is loaded
+    useEffect(() => {
+        if (incomeExpenses.length > 0 && !selectedMonth) {
+            // Get the latest month from the sorted list
+            const latestMonth = sortedMonths[0];
+            if (latestMonth) {
+                setSelectedMonth(latestMonth);
+            }
+        }
+    }, [incomeExpenses, selectedMonth, sortedMonths]);
+
+
     // --- Authentication Handlers ---
     const handleAuthSubmit = async (e) => {
         e.preventDefault();
@@ -242,6 +263,7 @@ function App() {
             try {
                 await signOut(auth);
                 setUserId(null); // Clear user ID on logout
+                setLoggedInUsername(''); // Clear logged-in username on logout
                 setActiveTab('dashboard'); // Go back to dashboard on logout
             } catch (err) {
                 console.error("ข้อผิดพลาดในการออกจากระบบ:", err);
@@ -487,11 +509,7 @@ function App() {
     const totalLiabilities = liabilities.reduce((sum, liability) => sum + (parseFloat(liability.amount) || 0), 0);
     const netWorth = totalAssets - totalLiabilities;
 
-    const totalIncome = incomeExpenses.filter(t => t.type === 'income').reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
-    const totalExpenses = incomeExpenses.filter(t => t.type === 'expense').reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
-    const netCashFlow = totalIncome - totalExpenses;
-
-    // Data for charts
+    // Data for charts (These are still needed for Assets/Liabilities tab)
     const assetCategories = assets.reduce((acc, asset) => {
         acc[asset.category] = (acc[asset.category] || 0) + (parseFloat(asset.value) || 0);
         return acc;
@@ -532,43 +550,49 @@ function App() {
         allMonthlyIncomeExpenseData[monthKey].net = allMonthlyIncomeExpenseData[monthKey].income - allMonthlyIncomeExpenseData[monthKey].expense;
     });
 
-    const sortedAllMonthKeys = Object.keys(allMonthlyIncomeExpenseData).sort((a, b) => b.localeCompare(a)); // Sort descending for latest months
+    // Sort months chronologically for the trend chart
+    const sortedAllMonthKeys = Object.keys(allMonthlyIncomeExpenseData).sort((a, b) => a.localeCompare(b));
 
     const startIndex = monthOffset * 6;
     const endIndex = startIndex + 6;
-    const visibleMonthKeys = sortedAllMonthKeys.slice(startIndex, endIndex).sort((a, b) => a.localeCompare(b)); // Sort ascending for chart display
+    const visibleMonthKeys = sortedAllMonthKeys.slice(startIndex, endIndex);
 
     const incomeExpenseTrendData = visibleMonthKeys.map(monthKey => ({
         month: monthKey, // Keep YYYY-MM for sorting
-        รายรับ: allMonthlyIncomeExpenseData[monthKey].income,
-        รายจ่าย: allMonthlyIncomeExpenseData[monthKey].expense,
-        สุทธิ: allMonthlyIncomeExpenseData[monthKey].net,
+        รายรับ: allMonthlyIncomeExpenseData[monthKey].income || 0,
+        รายจ่าย: allMonthlyIncomeExpenseData[monthKey].expense || 0,
+        สุทธิ: allMonthlyIncomeExpenseData[monthKey].net || 0,
     }));
 
-    // Data for income/expense category distribution
-    const incomeCategoryData = incomeExpenses
+    // Data for income/expense category distribution (filtered by selectedMonth)
+    const filteredIncomeExpensesByMonth = incomeExpenses.filter(item =>
+        selectedMonth ? item.date.startsWith(selectedMonth) : true // Filter by selectedMonth if available
+    );
+
+    const incomeCategoryDataMonthly = filteredIncomeExpensesByMonth
         .filter(item => item.type === 'income')
         .reduce((acc, item) => {
             acc[item.category] = (acc[item.category] || 0) + parseFloat(item.amount);
             return acc;
         }, {});
 
-    const expenseCategoryData = incomeExpenses
+    const expenseCategoryDataMonthly = filteredIncomeExpensesByMonth
         .filter(item => item.type === 'expense')
         .reduce((acc, item) => {
             acc[item.category] = (acc[item.category] || 0) + parseFloat(item.amount);
             return acc;
         }, {});
 
-    const incomePieChartData = Object.keys(incomeCategoryData).map(category => ({
+    const incomePieChartDataMonthly = Object.keys(incomeCategoryDataMonthly).map(category => ({
         name: category,
-        value: incomeCategoryData[category]
+        value: incomeCategoryDataMonthly[category]
     }));
 
-    const expensePieChartData = Object.keys(expenseCategoryData).map(category => ({
+    const expensePieChartDataMonthly = Object.keys(expenseCategoryDataMonthly).map(category => ({
         name: category,
-        value: expenseCategoryData[category]
+        value: expenseCategoryDataMonthly[category]
     }));
+
 
     // Group income/expenses by month for display in the table
     const groupedIncomeExpenses = incomeExpenses.reduce((acc, item) => {
@@ -702,9 +726,9 @@ function App() {
 
             {/* Main Content */}
             <main className="flex-1 p-6 md:p-8 lg:p-10">
-                {userId && (
+                {loggedInUsername && ( // Display loggedInUsername instead of userId
                     <div className="text-right text-sm text-gray-500 mb-4">
-                        ชื่อผู้ใช้: <span className="font-mono text-gray-700">{userId}</span> {/* Changed "User ID:" to "ชื่อผู้ใช้:" */}
+                        ชื่อผู้ใช้: <span className="font-mono text-gray-700">{loggedInUsername}</span>
                     </div>
                 )}
 
@@ -729,23 +753,31 @@ function App() {
                             </div>
                         </div>
 
-                        {/* Cash Flow Summary */}
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                            <div className="bg-white p-6 rounded-xl shadow-lg border border-green-200 text-center transform hover:scale-105 transition-transform duration-300">
-                                <h3 className="text-xl font-semibold text-gray-600 mb-2">รายรับรวม</h3>
-                                <p className="text-4xl font-bold text-green-600">{formatNumberWithCommas(totalIncome)} บาท</p>
-                            </div>
-                            <div className="bg-white p-6 rounded-xl shadow-lg border border-orange-200 text-center transform hover:scale-105 transition-transform duration-300">
-                                <h3 className="text-xl font-semibold text-gray-600 mb-2">รายจ่ายรวม</h3>
-                                <p className="text-4xl font-bold text-red-600">{formatNumberWithCommas(totalExpenses)} บาท</p>
-                            </div>
-                            <div className="bg-white p-6 rounded-xl shadow-lg border border-blue-200 text-center transform hover:scale-105 transition-transform duration-300">
-                                <h3 className="text-xl font-semibold text-gray-600 mb-2">กระแสเงินสดสุทธิ</h3>
-                                <p className={`text-4xl font-bold ${netCashFlow >= 0 ? 'text-green-700' : 'text-red-700'}`}>{formatNumberWithCommas(netCashFlow)} บาท</p>
-                            </div>
+                        {/* New Bar Chart for Assets vs Liabilities vs Net Worth */}
+                        <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200 mb-8">
+                            <h3 className="text-2xl font-bold text-gray-800 mb-4 text-center">สินทรัพย์ vs หนี้สิน vs มูลค่าสุทธิ</h3>
+                            {totalAssets > 0 || totalLiabilities > 0 || netWorth !== 0 ? (
+                                <ResponsiveContainer width="100%" height={300}>
+                                    <BarChart
+                                        data={[{ name: 'สถานะการเงิน', สินทรัพย์: totalAssets, หนี้สิน: totalLiabilities, มูลค่าสุทธิ: netWorth }]}
+                                        margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+                                    >
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
+                                        <XAxis dataKey="name" />
+                                        <YAxis tickFormatter={formatNumberWithCommas} />
+                                        <Tooltip formatter={(value) => `${formatNumberWithCommas(value)} บาท`} />
+                                        <Legend />
+                                        <Bar dataKey="สินทรัพย์" fill="#4CAF50" barSize={40} />
+                                        <Bar dataKey="หนี้สิน" fill="#F44336" barSize={40} />
+                                        <Bar dataKey="มูลค่าสุทธิ" fill="#4a90e2" barSize={40} />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            ) : (
+                                <p className="text-center text-gray-500 mt-10">ยังไม่มีข้อมูลสินทรัพย์หรือหนี้สิน</p>
+                            )}
                         </div>
 
-                        {/* Income/Expense Trend Chart */}
+                        {/* Income/Expense Trend Bar Chart */}
                         <div className="bg-white p-6 rounded-xl shadow-lg mb-8">
                             <h3 className="text-2xl font-bold text-gray-800 mb-4 text-center">แนวโน้มรายรับ-รายจ่าย 6 เดือนล่าสุด</h3>
                             <div className="flex justify-center mb-4 space-x-4">
@@ -771,73 +803,17 @@ function App() {
                                 </button>
                             </div>
                             <ResponsiveContainer width="100%" height={300}>
-                                <LineChart data={incomeExpenseTrendData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                                <BarChart data={incomeExpenseTrendData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                                     <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
                                     <XAxis dataKey="month" tickFormatter={formatMonthYearForDisplay} angle={-45} textAnchor="end" height={60} />
                                     <YAxis tickFormatter={formatNumberWithCommas} />
                                     <Tooltip formatter={(value) => `${formatNumberWithCommas(value)} บาท`} labelFormatter={formatMonthYearForDisplay} />
                                     <Legend />
-                                    <Line type="monotone" dataKey="รายรับ" stroke="#82ca9d" strokeWidth={2} activeDot={{ r: 8 }} />
-                                    <Line type="monotone" dataKey="รายจ่าย" stroke="#ff7300" strokeWidth={2} activeDot={{ r: 8 }} />
-                                    <Line type="monotone" dataKey="สุทธิ" stroke="#8884d8" strokeWidth={2} activeDot={{ r: 8 }} />
-                                </LineChart>
+                                    <Bar dataKey="รายรับ" fill="#82ca9d" />
+                                    <Bar dataKey="รายจ่าย" fill="#ff7300" />
+                                    <Bar dataKey="สุทธิ" fill="#8884d8" />
+                                </BarChart>
                             </ResponsiveContainer>
-                        </div>
-
-                        {/* Category Distribution Charts */}
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                            <div className="bg-white p-6 rounded-xl shadow-lg">
-                                <h3 className="text-2xl font-bold text-gray-800 mb-4 text-center">สัดส่วนรายรับตามหมวดหมู่</h3>
-                                {incomePieChartData.length > 0 ? (
-                                    <ResponsiveContainer width="100%" height={300}>
-                                        <PieChart>
-                                            <Pie
-                                                data={incomePieChartData}
-                                                cx="50%"
-                                                cy="50%"
-                                                outerRadius={100}
-                                                fill="#8884d8"
-                                                dataKey="value"
-                                                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                                            >
-                                                {incomePieChartData.map((entry, index) => (
-                                                    <Cell key={`cell-income-${index}`} fill={WARM_COLORS[index % WARM_COLORS.length]} />
-                                                ))}
-                                            </Pie>
-                                            <Tooltip formatter={(value) => `${formatNumberWithCommas(value)} บาท`} />
-                                            <Legend />
-                                        </PieChart>
-                                    </ResponsiveContainer>
-                                ) : (
-                                    <p className="text-center text-gray-500">ไม่มีข้อมูลรายรับ</p>
-                                )}
-                            </div>
-                            <div className="bg-white p-6 rounded-xl shadow-lg">
-                                <h3 className="text-2xl font-bold text-gray-800 mb-4 text-center">สัดส่วนรายจ่ายตามหมวดหมู่</h3>
-                                {expensePieChartData.length > 0 ? (
-                                    <ResponsiveContainer width="100%" height={300}>
-                                        <PieChart>
-                                            <Pie
-                                                data={expensePieChartData}
-                                                cx="50%"
-                                                cy="50%"
-                                                outerRadius={100}
-                                                fill="#8884d8"
-                                                dataKey="value"
-                                                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                                            >
-                                                {expensePieChartData.map((entry, index) => (
-                                                    <Cell key={`cell-expense-${index}`} fill={COOL_COLORS[index % COOL_COLORS.length]} />
-                                                ))}
-                                            </Pie>
-                                            <Tooltip formatter={(value) => `${formatNumberWithCommas(value)} บาท`} />
-                                            <Legend />
-                                        </PieChart>
-                                    </ResponsiveContainer>
-                                ) : (
-                                    <p className="text-center text-gray-500">ไม่มีข้อมูลรายจ่าย</p>
-                                )}
-                            </div>
                         </div>
                     </section>
                 )}
@@ -847,8 +823,8 @@ function App() {
                     <section className="space-y-8">
                         <h2 className="text-4xl font-extrabold text-indigo-800 mb-6 text-center">บันทึกรายรับ-รายจ่าย</h2>
 
-                        {/* Add Transaction Button */}
-                        <div className="flex justify-end mb-6">
+                        {/* Add Transaction Button and Month Selector */}
+                        <div className="flex flex-col md:flex-row justify-between items-center mb-6 space-y-4 md:space-y-0 md:space-x-4">
                             <button
                                 onClick={() => { resetTransactionForm(); setShowTransactionModal(true); }}
                                 className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 transform hover:scale-105 flex items-center"
@@ -858,71 +834,147 @@ function App() {
                                 </svg>
                                 เพิ่มรายการใหม่
                             </button>
+                            <div className="flex items-center space-x-2">
+                                <label htmlFor="monthSelector" className="text-lg font-medium text-gray-700">เลือกเดือน:</label>
+                                <select
+                                    id="monthSelector"
+                                    value={selectedMonth}
+                                    onChange={(e) => setSelectedMonth(e.target.value)}
+                                    className="border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                                >
+                                    {sortedMonths.length > 0 ? (
+                                        sortedMonths.map(monthKey => (
+                                            <option key={monthKey} value={monthKey}>
+                                                {formatMonthYearForDisplay(monthKey)}
+                                            </option>
+                                        ))
+                                    ) : (
+                                        <option value="">ไม่มีข้อมูลเดือน</option>
+                                    )}
+                                </select>
+                            </div>
                         </div>
 
-                        {/* Income/Expense List by Month */}
-                        {sortedMonths.length > 0 ? (
-                            sortedMonths.map(monthKey => (
-                                <div key={monthKey} className="bg-white p-6 rounded-xl shadow-lg mb-6">
-                                    <h3 className="text-2xl font-bold text-gray-800 mb-4 border-b pb-2">{formatMonthYearForDisplay(monthKey)}</h3>
-                                    <div className="overflow-x-auto">
-                                        <table className="min-w-full bg-white rounded-lg overflow-hidden">
-                                            <thead className="bg-gray-100 border-b border-gray-200">
-                                                <tr>
-                                                    <th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">วันที่</th>
-                                                    <th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">ประเภท</th>
-                                                    <th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">หมวดหมู่</th>
-                                                    <th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">รายละเอียด</th>
-                                                    <th className="py-3 px-4 text-right text-sm font-semibold text-gray-600">จำนวนเงิน (บาท)</th>
-                                                    <th className="py-3 px-4 text-center text-sm font-semibold text-gray-600">การดำเนินการ</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {groupedIncomeExpenses[monthKey]
-                                                    .sort((a, b) => new Date(b.date) - new Date(a.date)) // Sort individual transactions by date
-                                                    .map(item => (
-                                                        <tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50">
-                                                            <td className="py-3 px-4 text-sm text-gray-700">{item.date}</td>
-                                                            <td className={`py-3 px-4 text-sm font-semibold ${item.type === 'income' ? 'text-green-600' : 'text-red-600'}`}>
-                                                                {item.type === 'income' ? 'รายรับ' : 'รายจ่าย'}
-                                                            </td>
-                                                            <td className="py-3 px-4 text-sm text-gray-700">{item.category}</td>
-                                                            <td className="py-3 px-4 text-sm text-gray-700">{item.description}</td>
-                                                            <td className="py-3 px-4 text-right text-sm font-semibold">
-                                                                {formatNumberWithCommas(item.amount)}
-                                                            </td>
-                                                            <td className="py-3 px-4 text-center text-sm">
-                                                                <button
-                                                                    onClick={() => editTransaction(item)}
-                                                                    className="text-blue-600 hover:text-blue-800 mr-3"
-                                                                    title="แก้ไข"
-                                                                >
-                                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block" viewBox="0 0 20 20" fill="currentColor">
-                                                                        <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zm-3.106 5.106L9.293 12.5l1.414 1.414 1.414-1.414 1.414-1.414-2.828-2.828z" />
-                                                                        <path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd" />
-                                                                    </svg>
-                                                                </button>
-                                                                <button
-                                                                    onClick={() => confirmDelete('income_expenses', item.id, `คุณแน่ใจหรือไม่ที่จะลบรายการรายรับ-รายจ่าย "${item.description}"?`)}
-                                                                    className="text-red-600 hover:text-red-800"
-                                                                    title="ลบ"
-                                                                >
-                                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block" viewBox="0 0 20 20" fill="currentColor">
-                                                                        <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1zm2 3a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1zm0 3a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1z" clipRule="evenodd" />
-                                                                    </svg>
-                                                                </button>
-                                                            </td>
-                                                        </tr>
+                        {/* Monthly Income/Expense Category Distribution Charts */}
+                        {selectedMonth && (
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                                <div className="bg-white p-6 rounded-xl shadow-lg">
+                                    <h3 className="text-2xl font-bold text-gray-800 mb-4 text-center">สัดส่วนรายรับตามหมวดหมู่ ({formatMonthYearForDisplay(selectedMonth)})</h3>
+                                    {incomePieChartDataMonthly.length > 0 ? (
+                                        <ResponsiveContainer width="100%" height={300}>
+                                            <PieChart>
+                                                <Pie
+                                                    data={incomePieChartDataMonthly}
+                                                    cx="50%"
+                                                    cy="50%"
+                                                    outerRadius={100}
+                                                    fill="#8884d8"
+                                                    dataKey="value"
+                                                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                                                >
+                                                    {incomePieChartDataMonthly.map((entry, index) => (
+                                                        <Cell key={`cell-income-monthly-${index}`} fill={WARM_COLORS[index % WARM_COLORS.length]} />
                                                     ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
+                                                </Pie>
+                                                <Tooltip formatter={(value) => `${formatNumberWithCommas(value)} บาท`} />
+                                                <Legend />
+                                            </PieChart>
+                                        </ResponsiveContainer>
+                                    ) : (
+                                        <p className="text-center text-gray-500">ไม่มีข้อมูลรายรับสำหรับเดือนนี้</p>
+                                    )}
                                 </div>
-                            ))
+                                <div className="bg-white p-6 rounded-xl shadow-lg">
+                                    <h3 className="text-2xl font-bold text-gray-800 mb-4 text-center">สัดส่วนรายจ่ายตามหมวดหมู่ ({formatMonthYearForDisplay(selectedMonth)})</h3>
+                                    {expensePieChartDataMonthly.length > 0 ? (
+                                        <ResponsiveContainer width="100%" height={300}>
+                                            <PieChart>
+                                                <Pie
+                                                    data={expensePieChartDataMonthly}
+                                                    cx="50%"
+                                                    cy="50%"
+                                                    outerRadius={100}
+                                                    fill="#8884d8"
+                                                    dataKey="value"
+                                                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                                                >
+                                                    {expensePieChartDataMonthly.map((entry, index) => (
+                                                        <Cell key={`cell-expense-monthly-${index}`} fill={COOL_COLORS[index % COOL_COLORS.length]} />
+                                                    ))}
+                                                </Pie>
+                                                <Tooltip formatter={(value) => `${formatNumberWithCommas(value)} บาท`} />
+                                                <Legend />
+                                            </PieChart>
+                                        </ResponsiveContainer>
+                                    ) : (
+                                        <p className="text-center text-gray-500">ไม่มีข้อมูลรายจ่ายสำหรับเดือนนี้</p>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+
+                        {/* Income/Expense List for Selected Month */}
+                        {selectedMonth && groupedIncomeExpenses[selectedMonth] && groupedIncomeExpenses[selectedMonth].length > 0 ? (
+                            <div className="bg-white p-6 rounded-xl shadow-lg mb-6">
+                                <h3 className="text-2xl font-bold text-gray-800 mb-4 border-b pb-2">{formatMonthYearForDisplay(selectedMonth)}</h3>
+                                <div className="overflow-x-auto">
+                                    <table className="min-w-full bg-white rounded-lg overflow-hidden">
+                                        <thead className="bg-gray-100 border-b border-gray-200">
+                                            <tr>
+                                                <th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">วันที่</th>
+                                                <th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">ประเภท</th>
+                                                <th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">หมวดหมู่</th>
+                                                <th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">รายละเอียด</th>
+                                                <th className="py-3 px-4 text-right text-sm font-semibold text-gray-600">จำนวนเงิน (บาท)</th>
+                                                <th className="py-3 px-4 text-center text-sm font-semibold text-gray-600">การดำเนินการ</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {groupedIncomeExpenses[selectedMonth]
+                                                .sort((a, b) => new Date(b.date) - new Date(a.date)) // Sort individual transactions by date
+                                                .map(item => (
+                                                    <tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50">
+                                                        <td className="py-3 px-4 text-sm text-gray-700">{item.date}</td>
+                                                        <td className={`py-3 px-4 text-sm font-semibold ${item.type === 'income' ? 'text-green-600' : 'text-red-600'}`}>
+                                                            {item.type === 'income' ? 'รายรับ' : 'รายจ่าย'}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-sm text-gray-700">{item.category}</td>
+                                                        <td className="py-3 px-4 text-sm text-gray-700">{item.description}</td>
+                                                        <td className="py-3 px-4 text-right text-sm font-semibold">
+                                                            {formatNumberWithCommas(item.amount)}
+                                                        </td>
+                                                        <td className="py-3 px-4 text-center text-sm">
+                                                            <button
+                                                                onClick={() => editTransaction(item)}
+                                                                className="text-blue-600 hover:text-blue-800 mr-3"
+                                                                title="แก้ไข"
+                                                            >
+                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block" viewBox="0 0 20 20" fill="currentColor">
+                                                                    <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zm-3.106 5.106L9.293 12.5l1.414 1.414 1.414-1.414 1.414-1.414-2.828-2.828z" />
+                                                                    <path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd" />
+                                                                </svg>
+                                                            </button>
+                                                            <button
+                                                                onClick={() => confirmDelete('income_expenses', item.id, `คุณแน่ใจหรือไม่ที่จะลบรายการรายรับ-รายจ่าย "${item.description}"?`)}
+                                                                className="text-red-600 hover:text-red-800"
+                                                                title="ลบ"
+                                                            >
+                                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block" viewBox="0 0 20 20" fill="currentColor">
+                                                                    <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1zm2 3a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1zm0 3a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1z" clipRule="evenodd" />
+                                                                </svg>
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
                         ) : (
                             <div className="bg-white p-6 rounded-xl shadow-lg text-center text-gray-500">
-                                <p>ไม่มีข้อมูลรายรับ-รายจ่าย</p>
-                                <p>กด "เพิ่มรายการใหม่" เพื่อเริ่มต้น</p>
+                                <p>ไม่มีข้อมูลรายรับ-รายจ่ายสำหรับเดือนที่เลือก</p>
+                                <p>กด "เพิ่มรายการใหม่" เพื่อเริ่มต้น หรือเลือกเดือนอื่น</p>
                             </div>
                         )}
                     </section>
@@ -939,7 +991,7 @@ function App() {
                                 <h3 className="text-2xl font-bold text-gray-800">สินทรัพย์ ({formatNumberWithCommas(totalAssets)} บาท)</h3>
                                 <button
                                     onClick={() => { resetAssetForm(); setShowAssetModal(true); }}
-                                    className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200 flex items-center"
+                                    className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-300 transform hover:scale-105 flex items-center"
                                 >
                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
@@ -1028,7 +1080,7 @@ function App() {
                                 <h3 className="text-2xl font-bold text-gray-800">หนี้สิน ({formatNumberWithCommas(totalLiabilities)} บาท)</h3>
                                 <button
                                     onClick={() => { resetLiabilityForm(); setShowLiabilityModal(true); }}
-                                    className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200 flex items-center"
+                                    className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-300 transform hover:scale-105 flex items-center"
                                 >
                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
