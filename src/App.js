@@ -4,17 +4,25 @@ import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, 
 import { getFirestore, collection, addDoc, getDocs, updateDoc, deleteDoc, doc, onSnapshot, query, orderBy, setDoc } from 'firebase/firestore';
 import { AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
 
+// ... (imports) ...
+
 const firebaseConfig = {
-  apiKey: "AIzaSyAMw_yYItNzkk_jR9oRXMcY54bjcrCkjKM",
-  authDomain: "the1percentapp-1939f.firebaseapp.com",
-  projectId: "the1percentapp-1939f",
-  storageBucket: "the1percentapp-1939f.firebasestorage.app",
-  messagingSenderId: "423767704252",
-  appId: "1:423767704252:web:b52adea1877240759e46b9"
+  apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
+  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.REACT_APP_FIREBASE_APP_ID
 };
 
 // Initialize Firebase
-const appId = firebaseConfig.projectId;
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const auth = getAuth(app);
+
+const appId = firebaseConfig.projectId; // ตรวจสอบว่าบรรทัดนี้อยู่ตรงนี้
+
+// ... (ส่วนที่เหลือของ App component) ...
 // Helper function to format a number with commas
 const formatNumberWithCommas = (num) => {
     if (num === '' || num === null || isNaN(num)) {
