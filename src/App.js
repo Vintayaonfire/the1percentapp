@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
 import { getFirestore, collection, addDoc, getDocs, updateDoc, deleteDoc, doc, onSnapshot, query, orderBy, setDoc } from 'firebase/firestore';
@@ -46,7 +46,7 @@ const parseFormattedNumber = (str) => {
     return isNaN(parsed) ? 0 : parsed; // Return 0 if parsing results in NaN
 };
 
-// Helper function to format McNamara-MM string to Thai month and year for display
+// Helper function to format YYYY-MM string to Thai month and year for display
 const formatMonthYearForDisplay = (yyyyMm) => {
     if (!yyyyMm) return '';
     const [year, month] = yyyyMm.split('-');
@@ -103,13 +103,16 @@ function App() {
     const [userId, setUserId] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    const [activeTab, setActiveTab] = useState('dashboard'); // 'dashboard', 'income-expense', 'assets-liabilities', 'goals'
-    const [monthOffset, setMonthOffset] = useState(0); // 0 for current 6 months, 1 for previous 6 months
+    const [activeTab, setActiveTab] = useState('dashboard');
+    const [monthOffset, setMonthOffset] = useState(0);
+
+    // --- NEW STATE for Income/Expense Tab ---
+    const [selectedMonth, setSelectedMonth] = useState('');
 
     // Authentication states
     const [username, setUsername] = useState('');
     const [pin, setPin] = useState('');
-    const [isLoginMode, setIsLoginMode] = useState(true); // true for login, false for register
+    const [isLoginMode, setIsLoginMode] = useState(true);
     const [authError, setAuthError] = useState('');
 
 
@@ -134,37 +137,33 @@ function App() {
     const [confirmAction, setConfirmAction] = useState(null);
     const [confirmMessage, setConfirmMessage] = useState('');
 
-    const currentEditingItem = useRef(null); // Ref to store the item being edited
+    const currentEditingItem = useRef(null);
 
     // Initialize Firebase and set up authentication
     useEffect(() => {
         try {
-            // Use the already initialized instances
             setAuth(authInstance);
             setDb(dbInstance);
-
             const unsubscribe = onAuthStateChanged(authInstance, async (user) => {
                 if (user) {
                     setUserId(user.uid);
-                    setAuthError(''); // Clear auth errors on successful login
+                    setAuthError('');
                 } else {
                     setUserId(null);
                 }
                 setLoading(false);
             });
-
             return () => unsubscribe();
         } catch (err) {
-            console.error("ข้อผิดพลาดในการเริ่มต้น Firebase:", err);
-            setError("ไม่สามารถเริ่มต้นแอปพลิเคชันได้ โปรดตรวจสอบการกำหนดค่า Firebase");
+            console.error("Firebase initialization error:", err);
+            setError("Could not initialize application. Please check Firebase config.");
             setLoading(false);
         }
-    }, []); // Empty dependency array means this runs once on mount
+    }, []);
 
     // Fetch data when userId is available
     useEffect(() => {
         if (!db || !userId) {
-            // Clear data if user logs out or not authenticated
             setIncomeExpenses([]);
             setAssets([]);
             setLiabilities([]);
@@ -176,24 +175,20 @@ function App() {
 
         const unsubIncomeExpenses = onSnapshot(collection(db, collectionPath('income_expenses')), (snapshot) => {
             const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            // Sort by date descending for display, but keep original date format
             setIncomeExpenses(data.sort((a, b) => new Date(b.date) - new Date(a.date)));
-        }, (err) => setError(`ข้อผิดพลาดในการโหลดรายรับ-รายจ่าย: ${err.message}`));
+        }, (err) => setError(`Error loading income-expenses: ${err.message}`));
 
         const unsubAssets = onSnapshot(collection(db, collectionPath('assets')), (snapshot) => {
-            const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setAssets(data);
-        }, (err) => setError(`ข้อผิดพลาดในการโหลดสินทรัพย์: ${err.message}`));
+            setAssets(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        }, (err) => setError(`Error loading assets: ${err.message}`));
 
         const unsubLiabilities = onSnapshot(collection(db, collectionPath('liabilities')), (snapshot) => {
-            const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setLiabilities(data);
-        }, (err) => setError(`ข้อผิดพลาดในการโหลดหนี้สิน: ${err.message}`));
+            setLiabilities(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        }, (err) => setError(`Error loading liabilities: ${err.message}`));
 
         const unsubGoals = onSnapshot(collection(db, collectionPath('goals')), (snapshot) => {
-            const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setGoals(data);
-        }, (err) => setError(`ข้อผิดพลาดในการโหลดเป้าหมาย: ${err.message}`));
+            setGoals(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        }, (err) => setError(`Error loading goals: ${err.message}`));
 
         return () => {
             unsubIncomeExpenses();
@@ -201,17 +196,15 @@ function App() {
             unsubLiabilities();
             unsubGoals();
         };
-    }, [db, userId, appId]); // appId is a constant, can be excluded from dependencies for useEffect
+    }, [db, userId, appId]);
 
     // --- Authentication Handlers ---
     const handleAuthSubmit = async (e) => {
         e.preventDefault();
         setAuthError('');
         setLoading(true);
-
-        // Firebase treats username as email for authentication
-        const email = username.includes('@') ? username : `${username}@financeapp.com`; // Append a dummy domain if not an email
-        const password = pin; // PIN is treated as password
+        const email = username.includes('@') ? username : `${username}@financeapp.com`;
+        const password = pin;
 
         try {
             if (isLoginMode) {
@@ -222,7 +215,7 @@ function App() {
             setUsername('');
             setPin('');
         } catch (err) {
-            console.error("ข้อผิดพลาดในการยืนยันตัวตน:", err.code, err.message);
+            console.error("Authentication error:", err.code, err.message);
             if (err.code === 'auth/email-already-in-use') {
                 setAuthError("ชื่อผู้ใช้นี้ถูกใช้งานแล้ว โปรดลองใช้ชื่ออื่นหรือเข้าสู่ระบบ");
             } else if (err.code === 'auth/invalid-email' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
@@ -241,20 +234,19 @@ function App() {
         if (auth) {
             try {
                 await signOut(auth);
-                setUserId(null); // Clear user ID on logout
-                setActiveTab('dashboard'); // Go back to dashboard on logout
+                setUserId(null);
+                setActiveTab('dashboard');
             } catch (err) {
-                console.error("ข้อผิดพลาดในการออกจากระบบ:", err);
-                setError("ไม่สามารถออกจากระบบได้");
+                console.error("Logout error:", err);
+                setError("Could not log out.");
             }
         }
     };
 
     // --- Data Management Functions ---
-
     const addOrUpdateDoc = async (collectionName, data, id = null) => {
         if (!db || !userId) {
-            setError("ผู้ใช้ไม่ได้เข้าสู่ระบบหรือฐานข้อมูลไม่พร้อมใช้งาน");
+            setError("User not logged in or database not available.");
             return;
         }
         setLoading(true);
@@ -262,14 +254,12 @@ function App() {
             const colRef = collection(db, `artifacts/${appId}/users/${userId}/${collectionName}`);
             if (id) {
                 await updateDoc(doc(colRef, id), data);
-                console.log(`เอกสารอัปเดตสำเร็จใน ${collectionName} ด้วย ID: ${id}`);
             } else {
                 await addDoc(colRef, data);
-                console.log(`เอกสารเพิ่มสำเร็จใน ${collectionName}`);
             }
         } catch (e) {
-            console.error(`ข้อผิดพลาดในการเพิ่ม/อัปเดตเอกสารใน ${collectionName}:`, e);
-            setError(`ไม่สามารถบันทึกข้อมูลได้: ${e.message}`);
+            console.error(`Error adding/updating document in ${collectionName}:`, e);
+            setError(`Could not save data: ${e.message}`);
         } finally {
             setLoading(false);
         }
@@ -277,43 +267,30 @@ function App() {
 
     const deleteDocById = async (collectionName, id) => {
         if (!db || !userId) {
-            setError("ผู้ใช้ไม่ได้เข้าสู่ระบบหรือฐานข้อมูลไม่พร้อมใช้งาน");
+            setError("User not logged in or database not available.");
             return;
         }
         setLoading(true);
         try {
             await deleteDoc(doc(db, `artifacts/${appId}/users/${userId}/${collectionName}`, id));
-            console.log(`เอกสารลบสำเร็จจาก ${collectionName} ด้วย ID: ${id}`);
         } catch (e) {
-            console.error(`ข้อผิดพลาดในการลบเอกสารจาก ${collectionName}:`, e);
-            setError(`ไม่สามารถลบข้อมูลได้: ${e.message}`);
+            console.error(`Error deleting document from ${collectionName}:`, e);
+            setError(`Could not delete data: ${e.message}`);
         } finally {
             setLoading(false);
             setShowConfirmModal(false);
         }
     };
 
-    // --- Handlers for Forms ---
-
+    // --- Form Handlers ---
     const handleTransactionChange = (e) => {
         const { name, value } = e.target;
-        if (name === 'amount') {
-            setNewTransaction(prev => ({ ...prev, [name]: parseFormattedNumber(value) }));
-        } else {
-            setNewTransaction(prev => ({ ...prev, [name]: value }));
-        }
+        setNewTransaction(prev => ({ ...prev, [name]: (name === 'amount') ? parseFormattedNumber(value) : value }));
     };
 
     const handleAddOrUpdateTransaction = async (e) => {
         e.preventDefault();
-        const data = {
-            type: newTransaction.type,
-            amount: parseFloat(newTransaction.amount),
-            category: newTransaction.category,
-            description: newTransaction.description,
-            date: newTransaction.date,
-            timestamp: new Date(), // For sorting
-        };
+        const data = { ...newTransaction, amount: parseFloat(newTransaction.amount), timestamp: new Date() };
         if (currentEditingItem.current) {
             await addOrUpdateDoc('income_expenses', data, currentEditingItem.current.id);
         } else {
@@ -325,22 +302,12 @@ function App() {
 
     const handleAssetChange = (e) => {
         const { name, value } = e.target;
-        if (name === 'value') {
-            setNewAsset(prev => ({ ...prev, [name]: parseFormattedNumber(value) }));
-        } else {
-            setNewAsset(prev => ({ ...prev, [name]: value }));
-        }
+        setNewAsset(prev => ({ ...prev, [name]: (name === 'value') ? parseFormattedNumber(value) : value }));
     };
 
     const handleAddOrUpdateAsset = async (e) => {
         e.preventDefault();
-        const data = {
-            name: newAsset.name,
-            value: parseFloat(newAsset.value),
-            category: newAsset.category,
-            dateAdded: newAsset.date,
-            lastUpdated: new Date(),
-        };
+        const data = { name: newAsset.name, value: parseFloat(newAsset.value), category: newAsset.category, dateAdded: newAsset.date, lastUpdated: new Date() };
         if (currentEditingItem.current) {
             await addOrUpdateDoc('assets', data, currentEditingItem.current.id);
         } else {
@@ -352,23 +319,12 @@ function App() {
 
     const handleLiabilityChange = (e) => {
         const { name, value } = e.target;
-        if (name === 'amount') {
-            setNewLiability(prev => ({ ...prev, [name]: parseFormattedNumber(value) }));
-        } else {
-            setNewLiability(prev => ({ ...prev, [name]: value }));
-        }
+        setNewLiability(prev => ({ ...prev, [name]: (name === 'amount') ? parseFormattedNumber(value) : value }));
     };
 
     const handleAddOrUpdateLiability = async (e) => {
         e.preventDefault();
-        const data = {
-            name: newLiability.name,
-            amount: parseFloat(newLiability.amount),
-            category: newLiability.category,
-            dateAdded: newLiability.date,
-            lastUpdated: new Date(),
-            dueDate: newLiability.dueDate,
-        };
+        const data = { name: newLiability.name, amount: parseFloat(newLiability.amount), category: newLiability.category, dateAdded: newLiability.date, lastUpdated: new Date(), dueDate: newLiability.dueDate };
         if (currentEditingItem.current) {
             await addOrUpdateDoc('liabilities', data, currentEditingItem.current.id);
         } else {
@@ -380,23 +336,12 @@ function App() {
 
     const handleGoalChange = (e) => {
         const { name, value } = e.target;
-        if (name === 'targetAmount' || name === 'currentAmount') {
-            setNewGoal(prev => ({ ...prev, [name]: parseFormattedNumber(value) }));
-        } else {
-            setNewGoal(prev => ({ ...prev, [name]: value }));
-        }
+        setNewGoal(prev => ({ ...prev, [name]: (name === 'targetAmount' || name === 'currentAmount') ? parseFormattedNumber(value) : value }));
     };
 
     const handleAddOrUpdateGoal = async (e) => {
         e.preventDefault();
-        const data = {
-            name: newGoal.name,
-            targetAmount: parseFloat(newGoal.targetAmount),
-            currentAmount: parseFloat(newGoal.currentAmount),
-            dueDate: newGoal.dueDate,
-            type: newGoal.type,
-            lastUpdated: new Date(),
-        };
+        const data = { name: newGoal.name, targetAmount: parseFloat(newGoal.targetAmount), currentAmount: parseFloat(newGoal.currentAmount), dueDate: newGoal.dueDate, type: newGoal.type, lastUpdated: new Date() };
         if (currentEditingItem.current) {
             await addOrUpdateDoc('goals', data, currentEditingItem.current.id);
         } else {
@@ -407,80 +352,19 @@ function App() {
     };
 
     // --- Reset Forms ---
-    const resetTransactionForm = () => {
-        setNewTransaction({ type: 'expense', amount: '', category: '', description: '', date: new Date().toISOString().split('T')[0] });
-        currentEditingItem.current = null;
-    };
-
-    const resetAssetForm = () => {
-        setNewAsset({ name: '', value: '', category: '', date: new Date().toISOString().split('T')[0] });
-        currentEditingItem.current = null;
-    };
-
-    const resetLiabilityForm = () => {
-        setNewLiability({ name: '', amount: '', category: '', date: new Date().toISOString().split('T')[0], dueDate: '' });
-        currentEditingItem.current = null;
-    };
-
-    const resetGoalForm = () => {
-        setNewGoal({ name: '', targetAmount: '', currentAmount: '0', dueDate: '', type: 'saving' });
-        currentEditingItem.current = null;
-    };
+    const resetTransactionForm = () => { setNewTransaction({ type: 'expense', amount: '', category: '', description: '', date: new Date().toISOString().split('T')[0] }); currentEditingItem.current = null; };
+    const resetAssetForm = () => { setNewAsset({ name: '', value: '', category: '', date: new Date().toISOString().split('T')[0] }); currentEditingItem.current = null; };
+    const resetLiabilityForm = () => { setNewLiability({ name: '', amount: '', category: '', date: new Date().toISOString().split('T')[0], dueDate: '' }); currentEditingItem.current = null; };
+    const resetGoalForm = () => { setNewGoal({ name: '', targetAmount: '', currentAmount: '0', dueDate: '', type: 'saving' }); currentEditingItem.current = null; };
 
     // --- Edit Functions ---
-    const editTransaction = (item) => {
-        currentEditingItem.current = item;
-        setNewTransaction({
-            type: item.type,
-            amount: item.amount,
-            category: item.category,
-            description: item.description,
-            date: item.date,
-        });
-        setShowTransactionModal(true);
-    };
-
-    const editAsset = (item) => {
-        currentEditingItem.current = item;
-        setNewAsset({
-            name: item.name,
-            value: item.value,
-            category: item.category,
-            date: item.dateAdded,
-        });
-        setShowAssetModal(true);
-    };
-
-    const editLiability = (item) => {
-        currentEditingItem.current = item;
-        setNewLiability({
-            name: item.name,
-            amount: item.amount,
-            category: item.category,
-            date: item.dateAdded,
-            dueDate: item.dueDate,
-        });
-        setShowLiabilityModal(true);
-    };
-
-    const editGoal = (item) => {
-        currentEditingItem.current = item;
-        setNewGoal({
-            name: item.name,
-            targetAmount: item.targetAmount,
-            currentAmount: item.currentAmount,
-            dueDate: item.dueDate,
-            type: item.type,
-        });
-        setShowGoalModal(true);
-    };
+    const editTransaction = (item) => { currentEditingItem.current = item; setNewTransaction({ type: item.type, amount: item.amount, category: item.category, description: item.description, date: item.date, }); setShowTransactionModal(true); };
+    const editAsset = (item) => { currentEditingItem.current = item; setNewAsset({ name: item.name, value: item.value, category: item.category, date: item.dateAdded, }); setShowAssetModal(true); };
+    const editLiability = (item) => { currentEditingItem.current = item; setNewLiability({ name: item.name, amount: item.amount, category: item.category, date: item.dateAdded, dueDate: item.dueDate, }); setShowLiabilityModal(true); };
+    const editGoal = (item) => { currentEditingItem.current = item; setNewGoal({ name: item.name, targetAmount: item.targetAmount, currentAmount: item.currentAmount, dueDate: item.dueDate, type: item.type, }); setShowGoalModal(true); };
 
     // --- Delete Confirmation ---
-    const confirmDelete = (collection, id, message) => {
-        setConfirmMessage(message);
-        setConfirmAction(() => () => deleteDocById(collection, id));
-        setShowConfirmModal(true);
-    };
+    const confirmDelete = (collection, id, message) => { setConfirmMessage(message); setConfirmAction(() => () => deleteDocById(collection, id)); setShowConfirmModal(true); };
 
     // --- Calculations for Dashboard ---
     const totalAssets = assets.reduce((sum, asset) => sum + (parseFloat(asset.value) || 0), 0);
@@ -491,160 +375,109 @@ function App() {
     const totalExpenses = incomeExpenses.filter(t => t.type === 'expense').reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
     const netCashFlow = totalIncome - totalExpenses;
 
-    // Data for charts
-    const assetCategories = assets.reduce((acc, asset) => {
-        acc[asset.category] = (acc[asset.category] || 0) + (parseFloat(asset.value) || 0);
-        return acc;
-    }, {});
-    const assetPieChartData = Object.keys(assetCategories).map(category => ({
-        name: category,
-        value: assetCategories[category]
-    }));
-
-    const liabilityCategories = liabilities.reduce((acc, liability) => {
-        acc[liability.category] = (acc[liability.category] || 0) + (parseFloat(liability.amount) || 0);
-        return acc;
-    }, {});
-    const liabilityPieChartData = Object.keys(liabilityCategories).map(category => ({
-        name: category,
-        value: liabilityCategories[category]
-    }));
-
     // Color Palettes
-    const WARM_COLORS = ['#FF6347', '#FFD700', '#FFA07A', '#FF4500', '#FF8C00', '#FF7F50']; // Tomato, Gold, LightSalmon, OrangeRed, DarkOrange, Coral
-    const COOL_COLORS = ['#4682B4', '#6A5ACD', '#87CEEB', '#5F9EA0', '#1E90FF', '#00CED1']; // SteelBlue, SlateBlue, SkyBlue, CadetBlue, DodgerBlue, DarkTurquoise
+    const WARM_COLORS = ['#FF6347', '#FFD700', '#FFA07A', '#FF4500', '#FF8C00', '#FF7F50'];
+    const COOL_COLORS = ['#4682B4', '#6A5ACD', '#87CEEB', '#5F9EA0', '#1E90FF', '#00CED1'];
 
-
-    // Group income/expenses by month for trend analysis
-    const allMonthlyIncomeExpenseData = {};
-
-    incomeExpenses.forEach(item => {
-        // Use YYYY-MM for consistent sorting
+    // Group income/expenses by month for trend analysis and tables
+    const groupedIncomeExpenses = useMemo(() => incomeExpenses.reduce((acc, item) => {
         const monthKey = item.date.substring(0, 7);
-        if (!allMonthlyIncomeExpenseData[monthKey]) {
-            allMonthlyIncomeExpenseData[monthKey] = { income: 0, expense: 0, net: 0 };
-        }
-        if (item.type === 'income') {
-            allMonthlyIncomeExpenseData[monthKey].income += parseFloat(item.amount);
-        } else {
-            allMonthlyIncomeExpenseData[monthKey].expense += parseFloat(item.amount);
-        }
-        allMonthlyIncomeExpenseData[monthKey].net = allMonthlyIncomeExpenseData[monthKey].income - allMonthlyIncomeExpenseData[monthKey].expense;
-    });
+        if (!acc[monthKey]) acc[monthKey] = [];
+        acc[monthKey].push(item);
+        return acc;
+    }, {}), [incomeExpenses]);
 
-    const sortedAllMonthKeys = Object.keys(allMonthlyIncomeExpenseData).sort((a, b) => b.localeCompare(a)); // Sort descending for latest months
+    const sortedMonths = useMemo(() => Object.keys(groupedIncomeExpenses).sort((a, b) => b.localeCompare(a)), [groupedIncomeExpenses]);
 
+    // Set initial selected month
+    useEffect(() => {
+        if (sortedMonths.length > 0 && !selectedMonth) {
+            setSelectedMonth(sortedMonths[0]);
+        }
+    }, [sortedMonths, selectedMonth]);
+
+    // Data for Dashboard charts
+    const allMonthlyIncomeExpenseData = useMemo(() => {
+        const data = {};
+        incomeExpenses.forEach(item => {
+            const monthKey = item.date.substring(0, 7);
+            if (!data[monthKey]) data[monthKey] = { income: 0, expense: 0, net: 0 };
+            if (item.type === 'income') data[monthKey].income += parseFloat(item.amount);
+            else data[monthKey].expense += parseFloat(item.amount);
+            data[monthKey].net = data[monthKey].income - data[monthKey].expense;
+        });
+        return data;
+    }, [incomeExpenses]);
+
+    const sortedAllMonthKeys = Object.keys(allMonthlyIncomeExpenseData).sort((a, b) => b.localeCompare(a));
     const startIndex = monthOffset * 6;
     const endIndex = startIndex + 6;
-    const visibleMonthKeys = sortedAllMonthKeys.slice(startIndex, endIndex).sort((a, b) => a.localeCompare(b)); // Sort ascending for chart display
-
+    const visibleMonthKeys = sortedAllMonthKeys.slice(startIndex, endIndex).sort((a, b) => a.localeCompare(b));
     const incomeExpenseTrendData = visibleMonthKeys.map(monthKey => ({
-        month: monthKey, // Keep YYYY-MM for sorting
+        month: monthKey,
         รายรับ: allMonthlyIncomeExpenseData[monthKey].income,
         รายจ่าย: allMonthlyIncomeExpenseData[monthKey].expense,
         สุทธิ: allMonthlyIncomeExpenseData[monthKey].net,
     }));
 
-    // Data for income/expense category distribution
-    const incomeCategoryData = incomeExpenses
-        .filter(item => item.type === 'income')
-        .reduce((acc, item) => {
-            acc[item.category] = (acc[item.category] || 0) + parseFloat(item.amount);
-            return acc;
-        }, {});
-
-    const expenseCategoryData = incomeExpenses
-        .filter(item => item.type === 'expense')
-        .reduce((acc, item) => {
-            acc[item.category] = (acc[item.category] || 0) + parseFloat(item.amount);
-            return acc;
-        }, {});
-
-    const incomePieChartData = Object.keys(incomeCategoryData).map(category => ({
-        name: category,
-        value: incomeCategoryData[category]
-    }));
-
-    const expensePieChartData = Object.keys(expenseCategoryData).map(category => ({
-        name: category,
-        value: expenseCategoryData[category]
-    }));
-
-    // Group income/expenses by month for display in the table
-    const groupedIncomeExpenses = incomeExpenses.reduce((acc, item) => {
-        // Use YYYY-MM for consistent grouping
-        const monthKey = item.date.substring(0, 7);
-        if (!acc[monthKey]) {
-            acc[monthKey] = [];
-        }
-        acc[monthKey].push(item);
+    const incomePieChartData = useMemo(() => Object.entries(incomeExpenses.filter(item => item.type === 'income').reduce((acc, item) => {
+        acc[item.category] = (acc[item.category] || 0) + parseFloat(item.amount);
         return acc;
-    }, {});
+    }, {})).map(([name, value]) => ({ name, value })), [incomeExpenses]);
 
-    // Sort months in descending order (most recent first) based on YYYY-MM keys
-    const sortedMonths = Object.keys(groupedIncomeExpenses).sort((a, b) => b.localeCompare(a));
+    const expensePieChartData = useMemo(() => Object.entries(incomeExpenses.filter(item => item.type === 'expense').reduce((acc, item) => {
+        acc[item.category] = (acc[item.category] || 0) + parseFloat(item.amount);
+        return acc;
+    }, {})).map(([name, value]) => ({ name, value })), [incomeExpenses]);
+
+    // --- NEW: Data for Monthly Pie Charts on Income/Expense Tab ---
+    const monthlyPieChartData = useMemo(() => {
+        if (!selectedMonth || !groupedIncomeExpenses[selectedMonth]) {
+            return { income: [], expense: [] };
+        }
+        const monthTransactions = groupedIncomeExpenses[selectedMonth];
+
+        const incomeData = monthTransactions.filter(i => i.type === 'income').reduce((acc, item) => {
+            acc[item.category] = (acc[item.category] || 0) + parseFloat(item.amount);
+            return acc;
+        }, {});
+
+        const expenseData = monthTransactions.filter(i => i.type === 'expense').reduce((acc, item) => {
+            acc[item.category] = (acc[item.category] || 0) + parseFloat(item.amount);
+            return acc;
+        }, {});
+
+        return {
+            income: Object.keys(incomeData).map(name => ({ name, value: incomeData[name] })),
+            expense: Object.keys(expenseData).map(name => ({ name, value: expenseData[name] }))
+        };
+    }, [selectedMonth, groupedIncomeExpenses]);
 
 
-    if (loading) {
-        return (
-            <div className="flex items-center justify-center min-h-screen bg-gray-100 text-gray-700">
-                <div className="text-xl font-semibold">กำลังโหลด...</div>
-            </div>
-        );
-    }
+    if (loading) return <div className="flex items-center justify-center min-h-screen bg-gray-100 text-gray-700"><div className="text-xl font-semibold">กำลังโหลด...</div></div>;
+    if (error) return <div className="flex items-center justify-center min-h-screen bg-red-100 text-red-700 p-4 rounded-lg"><div className="text-xl font-semibold">ข้อผิดพลาด: {error}</div></div>;
 
-    // If not logged in, show login/signup page
     if (!userId) {
         return (
             <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4 font-inter">
                 <div className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md text-center">
-                    <h2 className="text-3xl font-extrabold text-indigo-700 mb-6">ยินดีต้อนรับสู่ The 1%</h2> {/* Updated app name here */}
+                    <h2 className="text-3xl font-extrabold text-indigo-700 mb-6">ยินดีต้อนรับสู่ The 1%</h2>
                     <form onSubmit={handleAuthSubmit} className="space-y-5">
                         <div>
-                            <label htmlFor="username" className="block text-left text-sm font-medium text-gray-700 mb-1">
-                                ชื่อผู้ใช้ (เช่น อีเมล)
-                            </label>
-                            <input
-                                type="text"
-                                id="username"
-                                value={username}
-                                onChange={(e) => setUsername(e.target.value)}
-                                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                                placeholder="เช่น user@example.com"
-                                required
-                            />
+                            <label htmlFor="username" className="block text-left text-sm font-medium text-gray-700 mb-1">ชื่อผู้ใช้ (เช่น อีเมล)</label>
+                            <input type="text" id="username" value={username} onChange={(e) => setUsername(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" placeholder="เช่น user@example.com" required />
                         </div>
                         <div>
-                            <label htmlFor="pin" className="block text-left text-sm font-medium text-gray-700 mb-1">
-                                PIN (รหัสผ่าน 6 ตัวขึ้นไป)
-                            </label>
-                            <input
-                                type="password"
-                                id="pin"
-                                value={pin}
-                                onChange={(e) => setPin(e.target.value)}
-                                className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                                placeholder="••••••"
-                                required
-                                minLength="6"
-                            />
+                            <label htmlFor="pin" className="block text-left text-sm font-medium text-gray-700 mb-1">PIN (รหัสผ่าน 6 ตัวขึ้นไป)</label>
+                            <input type="password" id="pin" value={pin} onChange={(e) => setPin(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" placeholder="••••••" required minLength="6" />
                         </div>
-                        {authError && (
-                            <p className="text-red-600 text-sm">{authError}</p>
-                        )}
-                        <button
-                            type="submit"
-                            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg shadow-md transition duration-300 transform hover:scale-105"
-                            disabled={loading}
-                        >
+                        {authError && <p className="text-red-600 text-sm">{authError}</p>}
+                        <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg shadow-md transition duration-300 transform hover:scale-105" disabled={loading}>
                             {loading ? 'กำลังดำเนินการ...' : isLoginMode ? 'เข้าสู่ระบบ' : 'ลงทะเบียน'}
                         </button>
                     </form>
                     <div className="mt-6">
-                        <button
-                            onClick={() => setIsLoginMode(!isLoginMode)}
-                            className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
-                        >
+                        <button onClick={() => setIsLoginMode(!isLoginMode)} className="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
                             {isLoginMode ? 'ยังไม่มีบัญชี? ลงทะเบียนที่นี่' : 'มีบัญชีอยู่แล้ว? เข้าสู่ระบบที่นี่'}
                         </button>
                     </div>
@@ -653,870 +486,131 @@ function App() {
         );
     }
 
-    if (error) {
-        return (
-            <div className="flex items-center justify-center min-h-screen bg-red-100 text-red-700 p-4 rounded-lg">
-                <div className="text-xl font-semibold">ข้อผิดพลาด: {error}</div>
-            </div>
-        );
-    }
-
     return (
         <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 font-inter text-gray-800 flex flex-col">
-            {/* Header */}
             <header className="bg-white shadow-md py-4 px-6 flex justify-between items-center rounded-b-xl sticky top-0 z-10">
-                <h1 className="text-3xl font-extrabold text-indigo-700">The 1%</h1> {/* Updated app name here */}
+                <h1 className="text-3xl font-extrabold text-indigo-700">The 1%</h1>
                 <nav className="flex space-x-4 items-center">
-                    <button
-                        onClick={() => setActiveTab('dashboard')}
-                        className={`py-2 px-4 rounded-lg font-medium transition-all duration-200 ${activeTab === 'dashboard' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-100'}`}
-                    >
-                        แดชบอร์ด
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('income-expense')}
-                        className={`py-2 px-4 rounded-lg font-medium transition-all duration-200 ${activeTab === 'income-expense' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-100'}`}
-                    >
-                        รายรับ-รายจ่าย
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('assets-liabilities')}
-                        className={`py-2 px-4 rounded-lg font-medium transition-all duration-200 ${activeTab === 'assets-liabilities' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-100'}`}
-                    >
-                        สินทรัพย์-หนี้สิน
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('goals')}
-                        className={`py-2 px-4 rounded-lg font-medium transition-all duration-200 ${activeTab === 'goals' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-100'}`}
-                    >
-                        เป้าหมาย
-                    </button>
-                    <button
-                        onClick={handleLogout}
-                        className="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200"
-                    >
-                        ออกจากระบบ
-                    </button>
+                    <button onClick={() => setActiveTab('dashboard')} className={`py-2 px-4 rounded-lg font-medium transition-all duration-200 ${activeTab === 'dashboard' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-100'}`}>แดชบอร์ด</button>
+                    <button onClick={() => setActiveTab('income-expense')} className={`py-2 px-4 rounded-lg font-medium transition-all duration-200 ${activeTab === 'income-expense' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-100'}`}>รายรับ-รายจ่าย</button>
+                    <button onClick={() => setActiveTab('assets-liabilities')} className={`py-2 px-4 rounded-lg font-medium transition-all duration-200 ${activeTab === 'assets-liabilities' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-100'}`}>สินทรัพย์-หนี้สิน</button>
+                    <button onClick={() => setActiveTab('goals')} className={`py-2 px-4 rounded-lg font-medium transition-all duration-200 ${activeTab === 'goals' ? 'bg-indigo-600 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-100'}`}>เป้าหมาย</button>
+                    <button onClick={handleLogout} className="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200">ออกจากระบบ</button>
                 </nav>
             </header>
 
-            {/* Main Content */}
             <main className="flex-1 p-6 md:p-8 lg:p-10">
-                {userId && (
-                    <div className="text-right text-sm text-gray-500 mb-4">
-                        ชื่อผู้ใช้: <span className="font-mono text-gray-700">{userId}</span> {/* Changed "User ID:" to "ชื่อผู้ใช้:" */}
-                    </div>
-                )}
+                {userId && <div className="text-right text-sm text-gray-500 mb-4">ชื่อผู้ใช้: <span className="font-mono text-gray-700">{userId}</span></div>}
 
-                {/* Dashboard Tab */}
                 {activeTab === 'dashboard' && (
                     <section className="space-y-8">
                         <h2 className="text-4xl font-extrabold text-indigo-800 mb-6 text-center">ภาพรวมการเงินของคุณ</h2>
-
-                        {/* Net Worth Summary */}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                            <div className="bg-white p-6 rounded-xl shadow-lg border border-blue-200 text-center transform hover:scale-105 transition-transform duration-300">
-                                <h3 className="text-xl font-semibold text-gray-600 mb-2">สินทรัพย์รวม</h3>
-                                <p className="text-4xl font-bold text-green-600">{formatNumberWithCommas(totalAssets)} บาท</p>
-                            </div>
-                            <div className="bg-white p-6 rounded-xl shadow-lg border border-red-200 text-center transform hover:scale-105 transition-transform duration-300">
-                                <h3 className="text-xl font-semibold text-gray-600 mb-2">หนี้สินรวม</h3>
-                                <p className="text-4xl font-bold text-red-600">{formatNumberWithCommas(totalLiabilities)} บาท</p>
-                            </div>
-                            <div className="bg-white p-6 rounded-xl shadow-lg border border-purple-200 text-center transform hover:scale-105 transition-transform duration-300">
-                                <h3 className="text-xl font-semibold text-gray-600 mb-2">มูลค่าสุทธิ</h3>
-                                <p className={`text-4xl font-bold ${netWorth >= 0 ? 'text-green-700' : 'text-red-700'}`}>{formatNumberWithCommas(netWorth)} บาท</p>
-                            </div>
+                            <div className="bg-white p-6 rounded-xl shadow-lg border border-blue-200 text-center transform hover:scale-105 transition-transform duration-300"><h3 className="text-xl font-semibold text-gray-600 mb-2">สินทรัพย์รวม</h3><p className="text-4xl font-bold text-green-600">{formatNumberWithCommas(totalAssets)} บาท</p></div>
+                            <div className="bg-white p-6 rounded-xl shadow-lg border border-red-200 text-center transform hover:scale-105 transition-transform duration-300"><h3 className="text-xl font-semibold text-gray-600 mb-2">หนี้สินรวม</h3><p className="text-4xl font-bold text-red-600">{formatNumberWithCommas(totalLiabilities)} บาท</p></div>
+                            <div className="bg-white p-6 rounded-xl shadow-lg border border-purple-200 text-center transform hover:scale-105 transition-transform duration-300"><h3 className="text-xl font-semibold text-gray-600 mb-2">มูลค่าสุทธิ</h3><p className={`text-4xl font-bold ${netWorth >= 0 ? 'text-green-700' : 'text-red-700'}`}>{formatNumberWithCommas(netWorth)} บาท</p></div>
                         </div>
-
-                        {/* Cash Flow Summary */}
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                            <div className="bg-white p-6 rounded-xl shadow-lg border border-green-200 text-center transform hover:scale-105 transition-transform duration-300">
-                                <h3 className="text-xl font-semibold text-gray-600 mb-2">รายรับรวม</h3>
-                                <p className="text-4xl font-bold text-green-600">{formatNumberWithCommas(totalIncome)} บาท</p>
-                            </div>
-                            <div className="bg-white p-6 rounded-xl shadow-lg border border-orange-200 text-center transform hover:scale-105 transition-transform duration-300">
-                                <h3 className="text-xl font-semibold text-gray-600 mb-2">รายจ่ายรวม</h3>
-                                <p className="text-4xl font-bold text-red-600">{formatNumberWithCommas(totalExpenses)} บาท</p>
-                            </div>
-                            <div className="bg-white p-6 rounded-xl shadow-lg border border-blue-200 text-center transform hover:scale-105 transition-transform duration-300">
-                                <h3 className="text-xl font-semibold text-gray-600 mb-2">กระแสเงินสดสุทธิ</h3>
-                                <p className={`text-4xl font-bold ${netCashFlow >= 0 ? 'text-green-700' : 'text-red-700'}`}>{formatNumberWithCommas(netCashFlow)} บาท</p>
-                            </div>
-                        </div>
-
-                        {/* Income/Expense Trend Chart */}
                         <div className="bg-white p-6 rounded-xl shadow-lg mb-8">
                             <h3 className="text-2xl font-bold text-gray-800 mb-4 text-center">แนวโน้มรายรับ-รายจ่าย 6 เดือนล่าสุด</h3>
                             <div className="flex justify-center mb-4 space-x-4">
-                                <button
-                                    onClick={() => setMonthOffset(prev => Math.max(0, prev - 1))}
-                                    disabled={monthOffset === 0}
-                                    className="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block mr-1" viewBox="0 0 20 20" fill="currentColor">
-                                        <path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" />
-                                    </svg>
-                                    ย้อนหลัง
-                                </button>
-                                <button
-                                    onClick={() => setMonthOffset(prev => prev + 1)}
-                                    disabled={visibleMonthKeys.length < 6 || startIndex + 6 >= sortedAllMonthKeys.length}
-                                    className="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    ถัดไป
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block ml-1" viewBox="0 0 20 20" fill="currentColor">
-                                        <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
-                                    </svg>
-                                </button>
+                                <button onClick={() => setMonthOffset(prev => Math.max(0, prev - 1))} disabled={monthOffset === 0} className="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block mr-1" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clipRule="evenodd" /></svg>ย้อนหลัง</button>
+                                <button onClick={() => setMonthOffset(prev => prev + 1)} disabled={visibleMonthKeys.length < 6 || startIndex + 6 >= sortedAllMonthKeys.length} className="bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200 disabled:opacity-50 disabled:cursor-not-allowed">ถัดไป<svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block ml-1" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" /></svg></button>
                             </div>
-                            <ResponsiveContainer width="100%" height={300}>
-                                <LineChart data={incomeExpenseTrendData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
-                                    <XAxis dataKey="month" tickFormatter={formatMonthYearForDisplay} angle={-45} textAnchor="end" height={60} />
-                                    <YAxis tickFormatter={formatNumberWithCommas} />
-                                    <Tooltip formatter={(value) => `${formatNumberWithCommas(value)} บาท`} labelFormatter={formatMonthYearForDisplay} />
-                                    <Legend />
-                                    <Line type="monotone" dataKey="รายรับ" stroke="#82ca9d" strokeWidth={2} activeDot={{ r: 8 }} />
-                                    <Line type="monotone" dataKey="รายจ่าย" stroke="#ff7300" strokeWidth={2} activeDot={{ r: 8 }} />
-                                    <Line type="monotone" dataKey="สุทธิ" stroke="#8884d8" strokeWidth={2} activeDot={{ r: 8 }} />
-                                </LineChart>
-                            </ResponsiveContainer>
+                            <ResponsiveContainer width="100%" height={300}><LineChart data={incomeExpenseTrendData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}><CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" /><XAxis dataKey="month" tickFormatter={formatMonthYearForDisplay} angle={-45} textAnchor="end" height={60} /><YAxis tickFormatter={formatNumberWithCommas} /><Tooltip formatter={(value) => `${formatNumberWithCommas(value)} บาท`} labelFormatter={formatMonthYearForDisplay} /><Legend /><Line type="monotone" dataKey="รายรับ" stroke="#82ca9d" strokeWidth={2} activeDot={{ r: 8 }} /><Line type="monotone" dataKey="รายจ่าย" stroke="#ff7300" strokeWidth={2} activeDot={{ r: 8 }} /></LineChart></ResponsiveContainer>
                         </div>
-
-                        {/* Category Distribution Charts */}
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                            <div className="bg-white p-6 rounded-xl shadow-lg">
-                                <h3 className="text-2xl font-bold text-gray-800 mb-4 text-center">สัดส่วนรายรับตามหมวดหมู่</h3>
-                                {incomePieChartData.length > 0 ? (
-                                    <ResponsiveContainer width="100%" height={300}>
-                                        <PieChart>
-                                            <Pie
-                                                data={incomePieChartData}
-                                                cx="50%"
-                                                cy="50%"
-                                                outerRadius={100}
-                                                fill="#8884d8"
-                                                dataKey="value"
-                                                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                                            >
-                                                {incomePieChartData.map((entry, index) => (
-                                                    <Cell key={`cell-income-${index}`} fill={WARM_COLORS[index % WARM_COLORS.length]} />
-                                                ))}
-                                            </Pie>
-                                            <Tooltip formatter={(value) => `${formatNumberWithCommas(value)} บาท`} />
-                                            <Legend />
-                                        </PieChart>
-                                    </ResponsiveContainer>
-                                ) : (
-                                    <p className="text-center text-gray-500">ไม่มีข้อมูลรายรับ</p>
-                                )}
-                            </div>
-                            <div className="bg-white p-6 rounded-xl shadow-lg">
-                                <h3 className="text-2xl font-bold text-gray-800 mb-4 text-center">สัดส่วนรายจ่ายตามหมวดหมู่</h3>
-                                {expensePieChartData.length > 0 ? (
-                                    <ResponsiveContainer width="100%" height={300}>
-                                        <PieChart>
-                                            <Pie
-                                                data={expensePieChartData}
-                                                cx="50%"
-                                                cy="50%"
-                                                outerRadius={100}
-                                                fill="#8884d8"
-                                                dataKey="value"
-                                                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                                            >
-                                                {expensePieChartData.map((entry, index) => (
-                                                    <Cell key={`cell-expense-${index}`} fill={COOL_COLORS[index % COOL_COLORS.length]} />
-                                                ))}
-                                            </Pie>
-                                            <Tooltip formatter={(value) => `${formatNumberWithCommas(value)} บาท`} />
-                                            <Legend />
-                                        </PieChart>
-                                    </ResponsiveContainer>
-                                ) : (
-                                    <p className="text-center text-gray-500">ไม่มีข้อมูลรายจ่าย</p>
-                                )}
-                            </div>
+                            <div className="bg-white p-6 rounded-xl shadow-lg"><h3 className="text-2xl font-bold text-gray-800 mb-4 text-center">สัดส่วนรายรับตามหมวดหมู่</h3>{incomePieChartData.length > 0 ? <ResponsiveContainer width="100%" height={300}><PieChart><Pie data={incomePieChartData} cx="50%" cy="50%" outerRadius={100} fill="#8884d8" dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>{incomePieChartData.map((entry, index) => <Cell key={`cell-income-${index}`} fill={WARM_COLORS[index % WARM_COLORS.length]} />)}</Pie><Tooltip formatter={(value) => `${formatNumberWithCommas(value)} บาท`} /><Legend /></PieChart></ResponsiveContainer> : <p className="text-center text-gray-500">ไม่มีข้อมูลรายรับ</p>}</div>
+                            <div className="bg-white p-6 rounded-xl shadow-lg"><h3 className="text-2xl font-bold text-gray-800 mb-4 text-center">สัดส่วนรายจ่ายตามหมวดหมู่</h3>{expensePieChartData.length > 0 ? <ResponsiveContainer width="100%" height={300}><PieChart><Pie data={expensePieChartData} cx="50%" cy="50%" outerRadius={100} fill="#8884d8" dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>{expensePieChartData.map((entry, index) => <Cell key={`cell-expense-${index}`} fill={COOL_COLORS[index % COOL_COLORS.length]} />)}</Pie><Tooltip formatter={(value) => `${formatNumberWithCommas(value)} บาท`} /><Legend /></PieChart></ResponsiveContainer> : <p className="text-center text-gray-500">ไม่มีข้อมูลรายจ่าย</p>}</div>
                         </div>
                     </section>
                 )}
 
-                {/* Income/Expense Tab */}
                 {activeTab === 'income-expense' && (
                     <section className="space-y-8">
-                        <h2 className="text-4xl font-extrabold text-indigo-800 mb-6 text-center">บันทึกรายรับ-รายจ่าย</h2>
-
-                        {/* Add Transaction Button */}
-                        <div className="flex justify-end mb-6">
-                            <button
-                                onClick={() => { resetTransactionForm(); setShowTransactionModal(true); }}
-                                className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 transform hover:scale-105 flex items-center"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                                </svg>
-                                เพิ่มรายการใหม่
-                            </button>
+                        <div className="flex justify-between items-center mb-6">
+                            <h2 className="text-4xl font-extrabold text-indigo-800">บันทึกรายรับ-รายจ่าย</h2>
+                            <button onClick={() => { resetTransactionForm(); setShowTransactionModal(true); }} className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 transform hover:scale-105 flex items-center"><svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>เพิ่มรายการใหม่</button>
                         </div>
 
-                        {/* Income/Expense List by Month */}
                         {sortedMonths.length > 0 ? (
-                            sortedMonths.map(monthKey => (
-                                <div key={monthKey} className="bg-white p-6 rounded-xl shadow-lg mb-6">
-                                    <h3 className="text-2xl font-bold text-gray-800 mb-4 border-b pb-2">{formatMonthYearForDisplay(monthKey)}</h3>
-                                    <div className="overflow-x-auto">
-                                        <table className="min-w-full bg-white rounded-lg overflow-hidden">
-                                            <thead className="bg-gray-100 border-b border-gray-200">
-                                                <tr>
-                                                    <th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">วันที่</th>
-                                                    <th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">ประเภท</th>
-                                                    <th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">หมวดหมู่</th>
-                                                    <th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">รายละเอียด</th>
-                                                    <th className="py-3 px-4 text-right text-sm font-semibold text-gray-600">จำนวนเงิน (บาท)</th>
-                                                    <th className="py-3 px-4 text-center text-sm font-semibold text-gray-600">การดำเนินการ</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {groupedIncomeExpenses[monthKey]
-                                                    .sort((a, b) => new Date(b.date) - new Date(a.date)) // Sort individual transactions by date
-                                                    .map(item => (
+                            <>
+                                <div className="bg-white p-4 rounded-xl shadow-lg">
+                                    <label htmlFor="month-select" className="block text-sm font-medium text-gray-700 mb-2">เลือกเดือนเพื่อดูข้อมูล:</label>
+                                    <select
+                                        id="month-select"
+                                        value={selectedMonth}
+                                        onChange={(e) => setSelectedMonth(e.target.value)}
+                                        className="w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
+                                    >
+                                        {sortedMonths.map(monthKey => (
+                                            <option key={monthKey} value={monthKey}>{formatMonthYearForDisplay(monthKey)}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                    <div className="bg-white p-6 rounded-xl shadow-lg"><h3 className="text-2xl font-bold text-gray-800 mb-4 text-center">สัดส่วนรายรับ ({formatMonthYearForDisplay(selectedMonth)})</h3>{monthlyPieChartData.income.length > 0 ? <ResponsiveContainer width="100%" height={300}><PieChart><Pie data={monthlyPieChartData.income} cx="50%" cy="50%" outerRadius={100} fill="#8884d8" dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>{monthlyPieChartData.income.map((entry, index) => <Cell key={`cell-income-${index}`} fill={WARM_COLORS[index % WARM_COLORS.length]} />)}</Pie><Tooltip formatter={(value) => `${formatNumberWithCommas(value)} บาท`} /><Legend /></PieChart></ResponsiveContainer> : <p className="text-center text-gray-500">ไม่มีข้อมูลรายรับในเดือนนี้</p>}</div>
+                                    <div className="bg-white p-6 rounded-xl shadow-lg"><h3 className="text-2xl font-bold text-gray-800 mb-4 text-center">สัดส่วนรายจ่าย ({formatMonthYearForDisplay(selectedMonth)})</h3>{monthlyPieChartData.expense.length > 0 ? <ResponsiveContainer width="100%" height={300}><PieChart><Pie data={monthlyPieChartData.expense} cx="50%" cy="50%" outerRadius={100} fill="#8884d8" dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>{monthlyPieChartData.expense.map((entry, index) => <Cell key={`cell-expense-${index}`} fill={COOL_COLORS[index % COOL_COLORS.length]} />)}</Pie><Tooltip formatter={(value) => `${formatNumberWithCommas(value)} บาท`} /><Legend /></PieChart></ResponsiveContainer> : <p className="text-center text-gray-500">ไม่มีข้อมูลรายจ่ายในเดือนนี้</p>}</div>
+                                </div>
+
+                                {selectedMonth && groupedIncomeExpenses[selectedMonth] && (
+                                    <div className="bg-white p-6 rounded-xl shadow-lg mb-6">
+                                        <h3 className="text-2xl font-bold text-gray-800 mb-4 border-b pb-2">รายการในเดือน {formatMonthYearForDisplay(selectedMonth)}</h3>
+                                        <div className="overflow-x-auto">
+                                            <table className="min-w-full bg-white rounded-lg overflow-hidden">
+                                                <thead className="bg-gray-100 border-b border-gray-200"><tr><th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">วันที่</th><th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">ประเภท</th><th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">หมวดหมู่</th><th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">รายละเอียด</th><th className="py-3 px-4 text-right text-sm font-semibold text-gray-600">จำนวนเงิน (บาท)</th><th className="py-3 px-4 text-center text-sm font-semibold text-gray-600">การดำเนินการ</th></tr></thead>
+                                                <tbody>
+                                                    {groupedIncomeExpenses[selectedMonth].sort((a, b) => new Date(b.date) - new Date(a.date)).map(item => (
                                                         <tr key={item.id} className="border-b border-gray-100 hover:bg-gray-50">
                                                             <td className="py-3 px-4 text-sm text-gray-700">{item.date}</td>
-                                                            <td className={`py-3 px-4 text-sm font-semibold ${item.type === 'income' ? 'text-green-600' : 'text-red-600'}`}>
-                                                                {item.type === 'income' ? 'รายรับ' : 'รายจ่าย'}
-                                                            </td>
+                                                            <td className={`py-3 px-4 text-sm font-semibold ${item.type === 'income' ? 'text-green-600' : 'text-red-600'}`}>{item.type === 'income' ? 'รายรับ' : 'รายจ่าย'}</td>
                                                             <td className="py-3 px-4 text-sm text-gray-700">{item.category}</td>
                                                             <td className="py-3 px-4 text-sm text-gray-700">{item.description}</td>
-                                                            <td className="py-3 px-4 text-right text-sm font-semibold">
-                                                                {formatNumberWithCommas(item.amount)}
-                                                            </td>
-                                                            <td className="py-3 px-4 text-center text-sm">
-                                                                <button
-                                                                    onClick={() => editTransaction(item)}
-                                                                    className="text-blue-600 hover:text-blue-800 mr-3"
-                                                                    title="แก้ไข"
-                                                                >
-                                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block" viewBox="0 0 20 20" fill="currentColor">
-                                                                        <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zm-3.106 5.106L9.293 12.5l1.414 1.414 1.414-1.414 1.414-1.414-2.828-2.828z" />
-                                                                        <path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd" />
-                                                                    </svg>
-                                                                </button>
-                                                                <button
-                                                                    onClick={() => confirmDelete('income_expenses', item.id, `คุณแน่ใจหรือไม่ที่จะลบรายการรายรับ-รายจ่าย "${item.description}"?`)}
-                                                                    className="text-red-600 hover:text-red-800"
-                                                                    title="ลบ"
-                                                                >
-                                                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block" viewBox="0 0 20 20" fill="currentColor">
-                                                                        <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1zm2 3a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1zm0 3a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1z" clipRule="evenodd" />
-                                                                    </svg>
-                                                                </button>
-                                                            </td>
+                                                            <td className="py-3 px-4 text-right text-sm font-semibold">{formatNumberWithCommas(item.amount)}</td>
+                                                            <td className="py-3 px-4 text-center text-sm"><button onClick={() => editTransaction(item)} className="text-blue-600 hover:text-blue-800 mr-3" title="แก้ไข"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zm-3.106 5.106L9.293 12.5l1.414 1.414 1.414-1.414 1.414-1.414-2.828-2.828z" /><path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd" /></svg></button><button onClick={() => confirmDelete('income_expenses', item.id, `คุณแน่ใจหรือไม่ที่จะลบรายการ "${item.description}"?`)} className="text-red-600 hover:text-red-800" title="ลบ"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1zm2 3a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1zm0 3a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1z" clipRule="evenodd" /></svg></button></td>
                                                         </tr>
                                                     ))}
-                                            </tbody>
-                                        </table>
+                                                </tbody>
+                                            </table>
+                                        </div>
                                     </div>
-                                </div>
-                            ))
+                                )}
+                            </>
                         ) : (
-                            <div className="bg-white p-6 rounded-xl shadow-lg text-center text-gray-500">
-                                <p>ไม่มีข้อมูลรายรับ-รายจ่าย</p>
-                                <p>กด "เพิ่มรายการใหม่" เพื่อเริ่มต้น</p>
-                            </div>
+                            <div className="bg-white p-6 rounded-xl shadow-lg text-center text-gray-500"><p>ไม่มีข้อมูลรายรับ-รายจ่าย</p><p>กด "เพิ่มรายการใหม่" เพื่อเริ่มต้น</p></div>
                         )}
                     </section>
                 )}
 
-                {/* Assets & Liabilities Tab */}
                 {activeTab === 'assets-liabilities' && (
-                    <section className="space-y-8">
+                     <section className="space-y-8">
                         <h2 className="text-4xl font-extrabold text-indigo-800 mb-6 text-center">สินทรัพย์และหนี้สิน</h2>
-
-                        {/* Asset Summary */}
                         <div className="bg-white p-6 rounded-xl shadow-lg mb-6">
-                            <div className="flex justify-between items-center border-b pb-3 mb-4">
-                                <h3 className="text-2xl font-bold text-gray-800">สินทรัพย์ ({formatNumberWithCommas(totalAssets)} บาท)</h3>
-                                <button
-                                    onClick={() => { resetAssetForm(); setShowAssetModal(true); }}
-                                    className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200 flex items-center"
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                                    </svg>
-                                    เพิ่มสินทรัพย์
-                                </button>
-                            </div>
-                            {assetPieChartData.length > 0 && (
-                                <div className="mb-4">
-                                    <ResponsiveContainer width="100%" height={200}>
-                                        <PieChart>
-                                            <Pie
-                                                data={assetPieChartData}
-                                                cx="50%"
-                                                cy="50%"
-                                                outerRadius={80}
-                                                fill="#8884d8"
-                                                dataKey="value"
-                                                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                                            >
-                                                {assetPieChartData.map((entry, index) => (
-                                                    <Cell key={`cell-asset-${index}`} fill={WARM_COLORS[index % WARM_COLORS.length]} />
-                                                ))}
-                                            </Pie>
-                                            <Tooltip formatter={(value) => `${formatNumberWithCommas(value)} บาท`} />
-                                            <Legend />
-                                        </PieChart>
-                                    </ResponsiveContainer>
-                                </div>
-                            )}
-                            <div className="overflow-x-auto">
-                                <table className="min-w-full bg-white rounded-lg overflow-hidden">
-                                    <thead className="bg-gray-100 border-b border-gray-200">
-                                        <tr>
-                                            <th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">ชื่อสินทรัพย์</th>
-                                            <th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">หมวดหมู่</th>
-                                            <th className="py-3 px-4 text-right text-sm font-semibold text-gray-600">มูลค่า (บาท)</th>
-                                            <th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">วันที่เพิ่ม</th>
-                                            <th className="py-3 px-4 text-center text-sm font-semibold text-gray-600">การดำเนินการ</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {assets.length > 0 ? (
-                                            assets.map(asset => (
-                                                <tr key={asset.id} className="border-b border-gray-100 hover:bg-gray-50">
-                                                    <td className="py-3 px-4 text-sm text-gray-700">{asset.name}</td>
-                                                    <td className="py-3 px-4 text-sm text-gray-700">{asset.category}</td>
-                                                    <td className="py-3 px-4 text-right text-sm font-semibold">{formatNumberWithCommas(asset.value)}</td>
-                                                    <td className="py-3 px-4 text-sm text-gray-700">{asset.dateAdded}</td>
-                                                    <td className="py-3 px-4 text-center text-sm">
-                                                        <button
-                                                            onClick={() => editAsset(asset)}
-                                                            className="text-blue-600 hover:text-blue-800 mr-3"
-                                                            title="แก้ไข"
-                                                        >
-                                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block" viewBox="0 0 20 20" fill="currentColor">
-                                                                <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zm-3.106 5.106L9.293 12.5l1.414 1.414 1.414-1.414 1.414-1.414-2.828-2.828z" />
-                                                                <path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd" />
-                                                            </svg>
-                                                        </button>
-                                                        <button
-                                                            onClick={() => confirmDelete('assets', asset.id, `คุณแน่ใจหรือไม่ที่จะลบสินทรัพย์ "${asset.name}"?`)}
-                                                            className="text-red-600 hover:text-red-800"
-                                                            title="ลบ"
-                                                        >
-                                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block" viewBox="0 0 20 20" fill="currentColor">
-                                                                <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1zm2 3a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1zm0 3a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1z" clipRule="evenodd" />
-                                                            </svg>
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                            ))
-                                        ) : (
-                                            <tr>
-                                                <td colSpan="5" className="py-3 px-4 text-center text-gray-500">ไม่มีข้อมูลสินทรัพย์</td>
-                                            </tr>
-                                        )}
-                                    </tbody>
-                                </table>
-                            </div>
+                            <div className="flex justify-between items-center border-b pb-3 mb-4"><h3 className="text-2xl font-bold text-gray-800">สินทรัพย์ ({formatNumberWithCommas(totalAssets)} บาท)</h3><button onClick={() => { resetAssetForm(); setShowAssetModal(true); }} className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200 flex items-center"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>เพิ่มสินทรัพย์</button></div>
+                            <div className="overflow-x-auto"><table className="min-w-full bg-white rounded-lg overflow-hidden"><thead className="bg-gray-100 border-b border-gray-200"><tr><th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">ชื่อสินทรัพย์</th><th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">หมวดหมู่</th><th className="py-3 px-4 text-right text-sm font-semibold text-gray-600">มูลค่า (บาท)</th><th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">วันที่เพิ่ม</th><th className="py-3 px-4 text-center text-sm font-semibold text-gray-600">การดำเนินการ</th></tr></thead><tbody>{assets.length > 0 ? assets.map(asset => <tr key={asset.id} className="border-b border-gray-100 hover:bg-gray-50"><td className="py-3 px-4 text-sm text-gray-700">{asset.name}</td><td className="py-3 px-4 text-sm text-gray-700">{asset.category}</td><td className="py-3 px-4 text-right text-sm font-semibold">{formatNumberWithCommas(asset.value)}</td><td className="py-3 px-4 text-sm text-gray-700">{asset.dateAdded}</td><td className="py-3 px-4 text-center text-sm"><button onClick={() => editAsset(asset)} className="text-blue-600 hover:text-blue-800 mr-3" title="แก้ไข"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zm-3.106 5.106L9.293 12.5l1.414 1.414 1.414-1.414 1.414-1.414-2.828-2.828z" /><path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd" /></svg></button><button onClick={() => confirmDelete('assets', asset.id, `คุณแน่ใจหรือไม่ที่จะลบสินทรัพย์ "${asset.name}"?`)} className="text-red-600 hover:text-red-800" title="ลบ"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1zm2 3a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1zm0 3a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1z" clipRule="evenodd" /></svg></button></td></tr>) : <tr><td colSpan="5" className="py-3 px-4 text-center text-gray-500">ไม่มีข้อมูลสินทรัพย์</td></tr>}</tbody></table></div>
                         </div>
-
-                        {/* Liabilities Summary */}
                         <div className="bg-white p-6 rounded-xl shadow-lg">
-                            <div className="flex justify-between items-center border-b pb-3 mb-4">
-                                <h3 className="text-2xl font-bold text-gray-800">หนี้สิน ({formatNumberWithCommas(totalLiabilities)} บาท)</h3>
-                                <button
-                                    onClick={() => { resetLiabilityForm(); setShowLiabilityModal(true); }}
-                                    className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200 flex items-center"
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                                    </svg>
-                                    เพิ่มหนี้สิน
-                                </button>
-                            </div>
-                            {liabilityPieChartData.length > 0 && (
-                                <div className="mb-4">
-                                    <ResponsiveContainer width="100%" height={200}>
-                                        <PieChart>
-                                            <Pie
-                                                data={liabilityPieChartData}
-                                                cx="50%"
-                                                cy="50%"
-                                                outerRadius={80}
-                                                fill="#8884d8"
-                                                dataKey="value"
-                                                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                                            >
-                                                {liabilityPieChartData.map((entry, index) => (
-                                                    <Cell key={`cell-liability-${index}`} fill={COOL_COLORS[index % COOL_COLORS.length]} />
-                                                ))}
-                                            </Pie>
-                                            <Tooltip formatter={(value) => `${formatNumberWithCommas(value)} บาท`} />
-                                            <Legend />
-                                        </PieChart>
-                                    </ResponsiveContainer>
-                                </div>
-                            )}
-                            <div className="overflow-x-auto">
-                                <table className="min-w-full bg-white rounded-lg overflow-hidden">
-                                    <thead className="bg-gray-100 border-b border-gray-200">
-                                        <tr>
-                                            <th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">ชื่อหนี้สิน</th>
-                                            <th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">หมวดหมู่</th>
-                                            <th className="py-3 px-4 text-right text-sm font-semibold text-gray-600">จำนวนเงิน (บาท)</th>
-                                            <th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">วันที่เพิ่ม</th>
-                                            <th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">ครบกำหนด</th>
-                                            <th className="py-3 px-4 text-center text-sm font-semibold text-gray-600">การดำเนินการ</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {liabilities.length > 0 ? (
-                                            liabilities.map(liability => (
-                                                <tr key={liability.id} className="border-b border-gray-100 hover:bg-gray-50">
-                                                    <td className="py-3 px-4 text-sm text-gray-700">{liability.name}</td>
-                                                    <td className="py-3 px-4 text-sm text-gray-700">{liability.category}</td>
-                                                    <td className="py-3 px-4 text-right text-sm font-semibold">{formatNumberWithCommas(liability.amount)}</td>
-                                                    <td className="py-3 px-4 text-sm text-gray-700">{liability.dateAdded}</td>
-                                                    <td className="py-3 px-4 text-sm text-gray-700">{liability.dueDate}</td>
-                                                    <td className="py-3 px-4 text-center text-sm">
-                                                        <button
-                                                            onClick={() => editLiability(liability)}
-                                                            className="text-blue-600 hover:text-blue-800 mr-3"
-                                                            title="แก้ไข"
-                                                        >
-                                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block" viewBox="0 0 20 20" fill="currentColor">
-                                                                <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zm-3.106 5.106L9.293 12.5l1.414 1.414 1.414-1.414 1.414-1.414-2.828-2.828z" />
-                                                                <path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd" />
-                                                            </svg>
-                                                        </button>
-                                                        <button
-                                                            onClick={() => confirmDelete('liabilities', liability.id, `คุณแน่ใจหรือไม่ที่จะลบหนี้สิน "${liability.name}"?`)}
-                                                            className="text-red-600 hover:text-red-800"
-                                                            title="ลบ"
-                                                        >
-                                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block" viewBox="0 0 20 20" fill="currentColor">
-                                                                <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1zm2 3a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1zm0 3a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1z" clipRule="evenodd" />
-                                                            </svg>
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                            ))
-                                        ) : (
-                                            <tr>
-                                                <td colSpan="6" className="py-3 px-4 text-center text-gray-500">ไม่มีข้อมูลหนี้สิน</td>
-                                            </tr>
-                                        )}
-                                    </tbody>
-                                </table>
-                            </div>
+                            <div className="flex justify-between items-center border-b pb-3 mb-4"><h3 className="text-2xl font-bold text-gray-800">หนี้สิน ({formatNumberWithCommas(totalLiabilities)} บาท)</h3><button onClick={() => { resetLiabilityForm(); setShowLiabilityModal(true); }} className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200 flex items-center"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>เพิ่มหนี้สิน</button></div>
+                            <div className="overflow-x-auto"><table className="min-w-full bg-white rounded-lg overflow-hidden"><thead className="bg-gray-100 border-b border-gray-200"><tr><th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">ชื่อหนี้สิน</th><th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">หมวดหมู่</th><th className="py-3 px-4 text-right text-sm font-semibold text-gray-600">จำนวนเงิน (บาท)</th><th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">วันที่เพิ่ม</th><th className="py-3 px-4 text-left text-sm font-semibold text-gray-600">ครบกำหนด</th><th className="py-3 px-4 text-center text-sm font-semibold text-gray-600">การดำเนินการ</th></tr></thead><tbody>{liabilities.length > 0 ? liabilities.map(liability => <tr key={liability.id} className="border-b border-gray-100 hover:bg-gray-50"><td className="py-3 px-4 text-sm text-gray-700">{liability.name}</td><td className="py-3 px-4 text-sm text-gray-700">{liability.category}</td><td className="py-3 px-4 text-right text-sm font-semibold">{formatNumberWithCommas(liability.amount)}</td><td className="py-3 px-4 text-sm text-gray-700">{liability.dateAdded}</td><td className="py-3 px-4 text-sm text-gray-700">{liability.dueDate}</td><td className="py-3 px-4 text-center text-sm"><button onClick={() => editLiability(liability)} className="text-blue-600 hover:text-blue-800 mr-3" title="แก้ไข"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zm-3.106 5.106L9.293 12.5l1.414 1.414 1.414-1.414 1.414-1.414-2.828-2.828z" /><path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd" /></svg></button><button onClick={() => confirmDelete('liabilities', liability.id, `คุณแน่ใจหรือไม่ที่จะลบหนี้สิน "${liability.name}"?`)} className="text-red-600 hover:text-red-800" title="ลบ"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1zm2 3a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1zm0 3a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1z" clipRule="evenodd" /></svg></button></td></tr>) : <tr><td colSpan="6" className="py-3 px-4 text-center text-gray-500">ไม่มีข้อมูลหนี้สิน</td></tr>}</tbody></table></div>
                         </div>
                     </section>
                 )}
 
-                {/* Goals Tab */}
                 {activeTab === 'goals' && (
                     <section className="space-y-8">
                         <h2 className="text-4xl font-extrabold text-indigo-800 mb-6 text-center">เป้าหมายทางการเงิน</h2>
-
-                        {/* Add Goal Button */}
-                        <div className="flex justify-end mb-6">
-                            <button
-                                onClick={() => { resetGoalForm(); setShowGoalModal(true); }}
-                                className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 transform hover:scale-105 flex items-center"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                                </svg>
-                                เพิ่มเป้าหมาย
-                            </button>
-                        </div>
-
-                        {/* Goals List */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {goals.length > 0 ? (
-                                goals.map(goal => (
-                                    <div key={goal.id} className="bg-white p-6 rounded-xl shadow-lg border border-purple-200 flex flex-col justify-between transform hover:scale-105 transition-transform duration-300">
-                                        <div>
-                                            <h3 className="text-xl font-bold text-gray-800 mb-2">{goal.name}</h3>
-                                            <p className="text-gray-600 mb-1">ประเภท: <span className="font-semibold">{goal.type === 'saving' ? 'ออมเงิน' : 'ลงทุน'}</span></p>
-                                            <p className="text-gray-600 mb-1">เป้าหมาย: <span className="font-semibold text-indigo-600">{formatNumberWithCommas(goal.targetAmount)} บาท</span></p>
-                                            <p className="text-gray-600 mb-1">ปัจจุบัน: <span className="font-semibold text-green-600">{formatNumberWithCommas(goal.currentAmount)} บาท</span></p>
-                                            <p className="text-gray-600 mb-3">ครบกำหนด: <span className="font-semibold">{goal.dueDate}</span></p>
-                                            <div className="w-full bg-gray-200 rounded-full h-2.5 mb-2">
-                                                <div
-                                                    className="bg-purple-600 h-2.5 rounded-full"
-                                                    style={{ width: `${Math.min(100, (goal.currentAmount / goal.targetAmount) * 100)}%` }}
-                                                ></div>
-                                            </div>
-                                            <p className="text-sm text-gray-500 text-right">
-                                                {((goal.currentAmount / goal.targetAmount) * 100).toFixed(2)}%
-                                            </p>
-                                        </div>
-                                        <div className="flex justify-end mt-4 space-x-2">
-                                            <button
-                                                onClick={() => editGoal(goal)}
-                                                className="text-blue-600 hover:text-blue-800"
-                                                title="แก้ไข"
-                                            >
-                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block" viewBox="0 0 20 20" fill="currentColor">
-                                                    <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zm-3.106 5.106L9.293 12.5l1.414 1.414 1.414-1.414 1.414-1.414-2.828-2.828z" />
-                                                    <path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd" />
-                                                </svg>
-                                            </button>
-                                            <button
-                                                onClick={() => confirmDelete('goals', goal.id, `คุณแน่ใจหรือไม่ที่จะลบเป้าหมาย "${goal.name}"?`)}
-                                                className="text-red-600 hover:text-red-800"
-                                                title="ลบ"
-                                            >
-                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block" viewBox="0 0 20 20" fill="currentColor">
-                                                    <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1zm2 3a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1zm0 3a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1z" clipRule="evenodd" />
-                                                </svg>
-                                            </button>
-                                        </div>
-                                    </div>
-                                ))
-                            ) : (
-                                <div className="col-span-full bg-white p-6 rounded-xl shadow-lg text-center text-gray-500">
-                                    <p>ไม่มีข้อมูลเป้าหมาย</p>
-                                    <p>กด "เพิ่มเป้าหมาย" เพื่อเริ่มต้น</p>
-                                </div>
-                            )}
-                        </div>
+                        <div className="flex justify-end mb-6"><button onClick={() => { resetGoalForm(); setShowGoalModal(true); }} className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition duration-300 transform hover:scale-105 flex items-center"><svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>เพิ่มเป้าหมาย</button></div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">{goals.length > 0 ? goals.map(goal => <div key={goal.id} className="bg-white p-6 rounded-xl shadow-lg border border-purple-200 flex flex-col justify-between transform hover:scale-105 transition-transform duration-300"><div><h3 className="text-xl font-bold text-gray-800 mb-2">{goal.name}</h3><p className="text-gray-600 mb-1">ประเภท: <span className="font-semibold">{goal.type === 'saving' ? 'ออมเงิน' : 'ลงทุน'}</span></p><p className="text-gray-600 mb-1">เป้าหมาย: <span className="font-semibold text-indigo-600">{formatNumberWithCommas(goal.targetAmount)} บาท</span></p><p className="text-gray-600 mb-1">ปัจจุบัน: <span className="font-semibold text-green-600">{formatNumberWithCommas(goal.currentAmount)} บาท</span></p><p className="text-gray-600 mb-3">ครบกำหนด: <span className="font-semibold">{goal.dueDate}</span></p><div className="w-full bg-gray-200 rounded-full h-2.5 mb-2"><div className="bg-purple-600 h-2.5 rounded-full" style={{ width: `${Math.min(100, (goal.currentAmount / goal.targetAmount) * 100)}%` }}></div></div><p className="text-sm text-gray-500 text-right">{((goal.currentAmount / goal.targetAmount) * 100).toFixed(2)}%</p></div><div className="flex justify-end mt-4 space-x-2"><button onClick={() => editGoal(goal)} className="text-blue-600 hover:text-blue-800" title="แก้ไข"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block" viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zm-3.106 5.106L9.293 12.5l1.414 1.414 1.414-1.414 1.414-1.414-2.828-2.828z" /><path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd" /></svg></button><button onClick={() => confirmDelete('goals', goal.id, `คุณแน่ใจหรือไม่ที่จะลบเป้าหมาย "${goal.name}"?`)} className="text-red-600 hover:text-red-800" title="ลบ"><svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 011-1h4a1 1 0 110 2H8a1 1 0 01-1-1zm2 3a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1zm0 3a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1z" clipRule="evenodd" /></svg></button></div></div>) : <div className="col-span-full bg-white p-6 rounded-xl shadow-lg text-center text-gray-500"><p>ไม่มีข้อมูลเป้าหมาย</p><p>กด "เพิ่มเป้าหมาย" เพื่อเริ่มต้น</p></div>}</div>
                     </section>
                 )}
             </main>
 
             {/* Modals */}
-            <Modal show={showTransactionModal} onClose={() => { setShowTransactionModal(false); resetTransactionForm(); }} title={currentEditingItem.current ? "แก้ไขรายการ" : "เพิ่มรายการใหม่"}>
-                <form onSubmit={handleAddOrUpdateTransaction} className="space-y-4">
-                    <div>
-                        <label htmlFor="transactionType" className="block text-sm font-medium text-gray-700">ประเภท</label>
-                        <select
-                            id="transactionType"
-                            name="type"
-                            value={newTransaction.type}
-                            onChange={handleTransactionChange}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                            required
-                        >
-                            <option value="expense">รายจ่าย</option>
-                            <option value="income">รายรับ</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label htmlFor="transactionAmount" className="block text-sm font-medium text-gray-700">จำนวนเงิน (บาท)</label>
-                        <input
-                            type="text" // Use text to allow formatted input
-                            id="transactionAmount"
-                            name="amount"
-                            value={formatNumberWithCommas(newTransaction.amount)}
-                            onChange={handleTransactionChange}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                            placeholder="เช่น 1,000.00"
-                            required
-                        />
-                    </div>
-                    <div>
-                        <label htmlFor="transactionCategory" className="block text-sm font-medium text-gray-700">หมวดหมู่</label>
-                        <input
-                            type="text"
-                            id="transactionCategory"
-                            name="category"
-                            value={newTransaction.category}
-                            onChange={handleTransactionChange}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                            placeholder="เช่น อาหาร, เงินเดือน"
-                            required
-                        />
-                    </div>
-                    <div>
-                        <label htmlFor="transactionDescription" className="block text-sm font-medium text-gray-700">รายละเอียด (ไม่บังคับ)</label>
-                        <input
-                            type="text"
-                            id="transactionDescription"
-                            name="description"
-                            value={newTransaction.description}
-                            onChange={handleTransactionChange}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                            placeholder="เช่น ค่ากาแฟ, โบนัส"
-                        />
-                    </div>
-                    <div>
-                        <label htmlFor="transactionDate" className="block text-sm font-medium text-gray-700">วันที่</label>
-                        <input
-                            type="date"
-                            id="transactionDate"
-                            name="date"
-                            value={newTransaction.date}
-                            onChange={handleTransactionChange}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                            required
-                        />
-                    </div>
-                    <div className="flex justify-end space-x-3 mt-6">
-                        <button
-                            type="button"
-                            onClick={() => { setShowTransactionModal(false); resetTransactionForm(); }}
-                            className="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-lg transition duration-200"
-                        >
-                            ยกเลิก
-                        </button>
-                        <button
-                            type="submit"
-                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200"
-                        >
-                            {currentEditingItem.current ? "บันทึกการแก้ไข" : "เพิ่มรายการ"}
-                        </button>
-                    </div>
-                </form>
-            </Modal>
-
-            <Modal show={showAssetModal} onClose={() => { setShowAssetModal(false); resetAssetForm(); }} title={currentEditingItem.current ? "แก้ไขสินทรัพย์" : "เพิ่มสินทรัพย์ใหม่"}>
-                <form onSubmit={handleAddOrUpdateAsset} className="space-y-4">
-                    <div>
-                        <label htmlFor="assetName" className="block text-sm font-medium text-gray-700">ชื่อสินทรัพย์</label>
-                        <input
-                            type="text"
-                            id="assetName"
-                            name="name"
-                            value={newAsset.name}
-                            onChange={handleAssetChange}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                            placeholder="เช่น บ้าน, รถยนต์"
-                            required
-                        />
-                    </div>
-                    <div>
-                        <label htmlFor="assetValue" className="block text-sm font-medium text-gray-700">มูลค่า (บาท)</label>
-                        <input
-                            type="text" // Use text to allow formatted input
-                            id="assetValue"
-                            name="value"
-                            value={formatNumberWithCommas(newAsset.value)}
-                            onChange={handleAssetChange}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                            placeholder="เช่น 5,000,000"
-                            required
-                        />
-                    </div>
-                    <div>
-                        <label htmlFor="assetCategory" className="block text-sm font-medium text-gray-700">หมวดหมู่</label>
-                        <input
-                            type="text"
-                            id="assetCategory"
-                            name="category"
-                            value={newAsset.category}
-                            onChange={handleAssetChange}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                            placeholder="เช่น อสังหาริมทรัพย์, ยานพาหนะ"
-                            required
-                        />
-                    </div>
-                    <div>
-                        <label htmlFor="assetDate" className="block text-sm font-medium text-gray-700">วันที่เพิ่ม</label>
-                        <input
-                            type="date"
-                            id="assetDate"
-                            name="date"
-                            value={newAsset.date}
-                            onChange={handleAssetChange}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                            required
-                        />
-                    </div>
-                    <div className="flex justify-end space-x-3 mt-6">
-                        <button
-                            type="button"
-                            onClick={() => { setShowAssetModal(false); resetAssetForm(); }}
-                            className="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-lg transition duration-200"
-                        >
-                            ยกเลิก
-                        </button>
-                        <button
-                            type="submit"
-                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200"
-                        >
-                            {currentEditingItem.current ? "บันทึกการแก้ไข" : "เพิ่มสินทรัพย์"}
-                        </button>
-                    </div>
-                </form>
-            </Modal>
-
-            <Modal show={showLiabilityModal} onClose={() => { setShowLiabilityModal(false); resetLiabilityForm(); }} title={currentEditingItem.current ? "แก้ไขหนี้สิน" : "เพิ่มหนี้สินใหม่"}>
-                <form onSubmit={handleAddOrUpdateLiability} className="space-y-4">
-                    <div>
-                        <label htmlFor="liabilityName" className="block text-sm font-medium text-gray-700">ชื่อหนี้สิน</label>
-                        <input
-                            type="text"
-                            id="liabilityName"
-                            name="name"
-                            value={newLiability.name}
-                            onChange={handleLiabilityChange}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                            placeholder="เช่น หนี้บัตรเครดิต, เงินกู้บ้าน"
-                            required
-                        />
-                    </div>
-                    <div>
-                        <label htmlFor="liabilityAmount" className="block text-sm font-medium text-gray-700">จำนวนเงิน (บาท)</label>
-                        <input
-                            type="text" // Use text to allow formatted input
-                            id="liabilityAmount"
-                            name="amount"
-                            value={formatNumberWithCommas(newLiability.amount)}
-                            onChange={handleLiabilityChange}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                            placeholder="เช่น 100,000"
-                            required
-                        />
-                    </div>
-                    <div>
-                        <label htmlFor="liabilityCategory" className="block text-sm font-medium text-gray-700">หมวดหมู่</label>
-                        <input
-                            type="text"
-                            id="liabilityCategory"
-                            name="category"
-                            value={newLiability.category}
-                            onChange={handleLiabilityChange}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                            placeholder="เช่น หนี้สินระยะยาว, หนี้สินระยะสั้น"
-                            required
-                        />
-                    </div>
-                    <div>
-                        <label htmlFor="liabilityDate" className="block text-sm font-medium text-gray-700">วันที่เพิ่ม</label>
-                        <input
-                            type="date"
-                            id="liabilityDate"
-                            name="date"
-                            value={newLiability.date}
-                            onChange={handleLiabilityChange}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                            required
-                        />
-                    </div>
-                    <div>
-                        <label htmlFor="liabilityDueDate" className="block text-sm font-medium text-gray-700">ครบกำหนด (ไม่บังคับ)</label>
-                        <input
-                            type="date"
-                            id="liabilityDueDate"
-                            name="dueDate"
-                            value={newLiability.dueDate}
-                            onChange={handleLiabilityChange}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                        />
-                    </div>
-                    <div className="flex justify-end space-x-3 mt-6">
-                        <button
-                            type="button"
-                            onClick={() => { setShowLiabilityModal(false); resetLiabilityForm(); }}
-                            className="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-lg transition duration-200"
-                        >
-                            ยกเลิก
-                        </button>
-                        <button
-                            type="submit"
-                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200"
-                        >
-                            {currentEditingItem.current ? "บันทึกการแก้ไข" : "เพิ่มหนี้สิน"}
-                        </button>
-                    </div>
-                </form>
-            </Modal>
-
-            <Modal show={showGoalModal} onClose={() => { setShowGoalModal(false); resetGoalForm(); }} title={currentEditingItem.current ? "แก้ไขเป้าหมาย" : "เพิ่มเป้าหมายใหม่"}>
-                <form onSubmit={handleAddOrUpdateGoal} className="space-y-4">
-                    <div>
-                        <label htmlFor="goalName" className="block text-sm font-medium text-gray-700">ชื่อเป้าหมาย</label>
-                        <input
-                            type="text"
-                            id="goalName"
-                            name="name"
-                            value={newGoal.name}
-                            onChange={handleGoalChange}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                            placeholder="เช่น เงินดาวน์บ้าน, ทริปเที่ยว"
-                            required
-                        />
-                    </div>
-                    <div>
-                        <label htmlFor="goalTargetAmount" className="block text-sm font-medium text-gray-700">จำนวนเงินเป้าหมาย (บาท)</label>
-                        <input
-                            type="text" // Use text to allow formatted input
-                            id="goalTargetAmount"
-                            name="targetAmount"
-                            value={formatNumberWithCommas(newGoal.targetAmount)}
-                            onChange={handleGoalChange}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                            placeholder="เช่น 100,000"
-                            required
-                        />
-                    </div>
-                    <div>
-                        <label htmlFor="goalCurrentAmount" className="block text-sm font-medium text-gray-700">จำนวนเงินปัจจุบัน (บาท)</label>
-                        <input
-                            type="text" // Use text to allow formatted input
-                            id="goalCurrentAmount"
-                            name="currentAmount"
-                            value={formatNumberWithCommas(newGoal.currentAmount)}
-                            onChange={handleGoalChange}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                            placeholder="เช่น 10,000"
-                            required
-                        />
-                    </div>
-                    <div>
-                        <label htmlFor="goalDueDate" className="block text-sm font-medium text-gray-700">ครบกำหนด</label>
-                        <input
-                            type="date"
-                            id="goalDueDate"
-                            name="dueDate"
-                            value={newGoal.dueDate}
-                            onChange={handleGoalChange}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                            required
-                        />
-                    </div>
-                    <div>
-                        <label htmlFor="goalType" className="block text-sm font-medium text-gray-700">ประเภทเป้าหมาย</label>
-                        <select
-                            id="goalType"
-                            name="type"
-                            value={newGoal.type}
-                            onChange={handleGoalChange}
-                            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                            required
-                        >
-                            <option value="saving">ออมเงิน</option>
-                            <option value="investment">ลงทุน</option>
-                        </select>
-                    </div>
-                    <div className="flex justify-end space-x-3 mt-6">
-                        <button
-                            type="button"
-                            onClick={() => { setShowGoalModal(false); resetGoalForm(); }}
-                            className="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-lg transition duration-200"
-                        >
-                            ยกเลิก
-                        </button>
-                        <button
-                            type="submit"
-                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200"
-                        >
-                            {currentEditingItem.current ? "บันทึกการแก้ไข" : "เพิ่มเป้าหมาย"}
-                        </button>
-                    </div>
-                </form>
-            </Modal>
-
-            <ConfirmModal
-                show={showConfirmModal}
-                message={confirmMessage}
-                onConfirm={confirmAction}
-                onCancel={() => setShowConfirmModal(false)}
-            />
+            <Modal show={showTransactionModal} onClose={() => { setShowTransactionModal(false); resetTransactionForm(); }} title={currentEditingItem.current ? "แก้ไขรายการ" : "เพิ่มรายการใหม่"}><form onSubmit={handleAddOrUpdateTransaction} className="space-y-4"><div><label htmlFor="transactionType" className="block text-sm font-medium text-gray-700">ประเภท</label><select id="transactionType" name="type" value={newTransaction.type} onChange={handleTransactionChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" required><option value="expense">รายจ่าย</option><option value="income">รายรับ</option></select></div><div><label htmlFor="transactionAmount" className="block text-sm font-medium text-gray-700">จำนวนเงิน (บาท)</label><input type="text" id="transactionAmount" name="amount" value={formatNumberWithCommas(newTransaction.amount)} onChange={(e) => setNewTransaction(prev => ({ ...prev, amount: e.target.value }))} onBlur={(e) => setNewTransaction(prev => ({ ...prev, amount: formatNumberWithCommas(parseFormattedNumber(e.target.value)) }))} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" placeholder="เช่น 1,000.00" required /></div><div><label htmlFor="transactionCategory" className="block text-sm font-medium text-gray-700">หมวดหมู่</label><input type="text" id="transactionCategory" name="category" value={newTransaction.category} onChange={handleTransactionChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" placeholder="เช่น อาหาร, เงินเดือน" required /></div><div><label htmlFor="transactionDescription" className="block text-sm font-medium text-gray-700">รายละเอียด (ไม่บังคับ)</label><input type="text" id="transactionDescription" name="description" value={newTransaction.description} onChange={handleTransactionChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" placeholder="เช่น ค่ากาแฟ, โบนัส" /></div><div><label htmlFor="transactionDate" className="block text-sm font-medium text-gray-700">วันที่</label><input type="date" id="transactionDate" name="date" value={newTransaction.date} onChange={handleTransactionChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" required /></div><div className="flex justify-end space-x-3 mt-6"><button type="button" onClick={() => { setShowTransactionModal(false); resetTransactionForm(); }} className="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-lg transition duration-200">ยกเลิก</button><button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200">{currentEditingItem.current ? "บันทึกการแก้ไข" : "เพิ่มรายการ"}</button></div></form></Modal>
+            <Modal show={showAssetModal} onClose={() => { setShowAssetModal(false); resetAssetForm(); }} title={currentEditingItem.current ? "แก้ไขสินทรัพย์" : "เพิ่มสินทรัพย์ใหม่"}><form onSubmit={handleAddOrUpdateAsset} className="space-y-4"><div><label htmlFor="assetName" className="block text-sm font-medium text-gray-700">ชื่อสินทรัพย์</label><input type="text" id="assetName" name="name" value={newAsset.name} onChange={handleAssetChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" placeholder="เช่น บ้าน, รถยนต์" required /></div><div><label htmlFor="assetValue" className="block text-sm font-medium text-gray-700">มูลค่า (บาท)</label><input type="text" id="assetValue" name="value" value={formatNumberWithCommas(newAsset.value)} onChange={(e) => setNewAsset(prev => ({ ...prev, value: e.target.value }))} onBlur={(e) => setNewAsset(prev => ({ ...prev, value: formatNumberWithCommas(parseFormattedNumber(e.target.value)) }))} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" placeholder="เช่น 5,000,000" required /></div><div><label htmlFor="assetCategory" className="block text-sm font-medium text-gray-700">หมวดหมู่</label><input type="text" id="assetCategory" name="category" value={newAsset.category} onChange={handleAssetChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" placeholder="เช่น อสังหาริมทรัพย์, ยานพาหนะ" required /></div><div><label htmlFor="assetDate" className="block text-sm font-medium text-gray-700">วันที่เพิ่ม</label><input type="date" id="assetDate" name="date" value={newAsset.date} onChange={handleAssetChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" required /></div><div className="flex justify-end space-x-3 mt-6"><button type="button" onClick={() => { setShowAssetModal(false); resetAssetForm(); }} className="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-lg transition duration-200">ยกเลิก</button><button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200">{currentEditingItem.current ? "บันทึกการแก้ไข" : "เพิ่มสินทรัพย์"}</button></div></form></Modal>
+            <Modal show={showLiabilityModal} onClose={() => { setShowLiabilityModal(false); resetLiabilityForm(); }} title={currentEditingItem.current ? "แก้ไขหนี้สิน" : "เพิ่มหนี้สินใหม่"}><form onSubmit={handleAddOrUpdateLiability} className="space-y-4"><div><label htmlFor="liabilityName" className="block text-sm font-medium text-gray-700">ชื่อหนี้สิน</label><input type="text" id="liabilityName" name="name" value={newLiability.name} onChange={handleLiabilityChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" placeholder="เช่น หนี้บัตรเครดิต, เงินกู้บ้าน" required /></div><div><label htmlFor="liabilityAmount" className="block text-sm font-medium text-gray-700">จำนวนเงิน (บาท)</label><input type="text" id="liabilityAmount" name="amount" value={formatNumberWithCommas(newLiability.amount)} onChange={(e) => setNewLiability(prev => ({ ...prev, amount: e.target.value }))} onBlur={(e) => setNewLiability(prev => ({ ...prev, amount: formatNumberWithCommas(parseFormattedNumber(e.target.value)) }))} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" placeholder="เช่น 100,000" required /></div><div><label htmlFor="liabilityCategory" className="block text-sm font-medium text-gray-700">หมวดหมู่</label><input type="text" id="liabilityCategory" name="category" value={newLiability.category} onChange={handleLiabilityChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" placeholder="เช่น หนี้สินระยะยาว, หนี้สินระยะสั้น" required /></div><div><label htmlFor="liabilityDate" className="block text-sm font-medium text-gray-700">วันที่เพิ่ม</label><input type="date" id="liabilityDate" name="date" value={newLiability.date} onChange={handleLiabilityChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" required /></div><div><label htmlFor="liabilityDueDate" className="block text-sm font-medium text-gray-700">ครบกำหนด (ไม่บังคับ)</label><input type="date" id="liabilityDueDate" name="dueDate" value={newLiability.dueDate} onChange={handleLiabilityChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" /></div><div className="flex justify-end space-x-3 mt-6"><button type="button" onClick={() => { setShowLiabilityModal(false); resetLiabilityForm(); }} className="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-lg transition duration-200">ยกเลิก</button><button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200">{currentEditingItem.current ? "บันทึกการแก้ไข" : "เพิ่มหนี้สิน"}</button></div></form></Modal>
+            <Modal show={showGoalModal} onClose={() => { setShowGoalModal(false); resetGoalForm(); }} title={currentEditingItem.current ? "แก้ไขเป้าหมาย" : "เพิ่มเป้าหมายใหม่"}><form onSubmit={handleAddOrUpdateGoal} className="space-y-4"><div><label htmlFor="goalName" className="block text-sm font-medium text-gray-700">ชื่อเป้าหมาย</label><input type="text" id="goalName" name="name" value={newGoal.name} onChange={handleGoalChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" placeholder="เช่น เงินดาวน์บ้าน, ทริปเที่ยว" required /></div><div><label htmlFor="goalTargetAmount" className="block text-sm font-medium text-gray-700">จำนวนเงินเป้าหมาย (บาท)</label><input type="text" id="goalTargetAmount" name="targetAmount" value={formatNumberWithCommas(newGoal.targetAmount)} onChange={(e) => setNewGoal(prev => ({ ...prev, targetAmount: e.target.value }))} onBlur={(e) => setNewGoal(prev => ({ ...prev, targetAmount: formatNumberWithCommas(parseFormattedNumber(e.target.value)) }))} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" placeholder="เช่น 100,000" required /></div><div><label htmlFor="goalCurrentAmount" className="block text-sm font-medium text-gray-700">จำนวนเงินปัจจุบัน (บาท)</label><input type="text" id="goalCurrentAmount" name="currentAmount" value={formatNumberWithCommas(newGoal.currentAmount)} onChange={(e) => setNewGoal(prev => ({ ...prev, currentAmount: e.target.value }))} onBlur={(e) => setNewGoal(prev => ({ ...prev, currentAmount: formatNumberWithCommas(parseFormattedNumber(e.target.value)) }))} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" placeholder="เช่น 10,000" required /></div><div><label htmlFor="goalDueDate" className="block text-sm font-medium text-gray-700">ครบกำหนด</label><input type="date" id="goalDueDate" name="dueDate" value={newGoal.dueDate} onChange={handleGoalChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" required /></div><div><label htmlFor="goalType" className="block text-sm font-medium text-gray-700">ประเภทเป้าหมาย</label><select id="goalType" name="type" value={newGoal.type} onChange={handleGoalChange} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm" required><option value="saving">ออมเงิน</option><option value="investment">ลงทุน</option></select></div><div className="flex justify-end space-x-3 mt-6"><button type="button" onClick={() => { setShowGoalModal(false); resetGoalForm(); }} className="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-lg transition duration-200">ยกเลิก</button><button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200">{currentEditingItem.current ? "บันทึกการแก้ไข" : "เพิ่มเป้าหมาย"}</button></div></form></Modal>
+            <ConfirmModal show={showConfirmModal} message={confirmMessage} onConfirm={confirmAction} onCancel={() => setShowConfirmModal(false)} />
         </div>
     );
 }
