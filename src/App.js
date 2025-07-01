@@ -99,7 +99,7 @@ const ConfirmModal = ({ show, message, onConfirm, onCancel }) => {
 
 function App() {
     const [db, setDb] = useState(null);
-    const [auth, setAuth] = useState(null);
+    const [auth, setAuth] = useState(null); // Keep this state for onAuthStateChanged listener
     const [userId, setUserId] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -143,7 +143,7 @@ function App() {
     useEffect(() => {
         try {
             // Use the already initialized instances
-            setAuth(authInstance);
+            setAuth(authInstance); // Still set auth state for other uses (e.g., onAuthStateChanged)
             setDb(dbInstance);
 
             const unsubscribe = onAuthStateChanged(authInstance, async (user) => {
@@ -235,10 +235,11 @@ function App() {
         const password = pin; // PIN is treated as password
 
         try {
+            // Use authInstance directly here to avoid potential race conditions with the 'auth' state
             if (isLoginMode) {
-                await signInWithEmailAndPassword(auth, email, password);
+                await signInWithEmailAndPassword(authInstance, email, password);
             } else {
-                await createUserWithEmailAndPassword(auth, email, password);
+                await createUserWithEmailAndPassword(authInstance, email, password);
             }
             setUsername('');
             setPin('');
@@ -259,9 +260,9 @@ function App() {
     };
 
     const handleLogout = async () => {
-        if (auth) {
+        if (authInstance) { // Use authInstance directly for logout as well
             try {
-                await signOut(auth);
+                await signOut(authInstance);
                 setUserId(null); // Clear user ID on logout
                 setLoggedInUsername(''); // Clear logged-in username on logout
                 setActiveTab('dashboard'); // Go back to dashboard on logout
@@ -991,7 +992,7 @@ function App() {
                                 <h3 className="text-2xl font-bold text-gray-800">สินทรัพย์ ({formatNumberWithCommas(totalAssets)} บาท)</h3>
                                 <button
                                     onClick={() => { resetAssetForm(); setShowAssetModal(true); }}
-                                    className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-300 transform hover:scale-105 flex items-center"
+                                    className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200 flex items-center"
                                 >
                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
@@ -1080,7 +1081,7 @@ function App() {
                                 <h3 className="text-2xl font-bold text-gray-800">หนี้สิน ({formatNumberWithCommas(totalLiabilities)} บาท)</h3>
                                 <button
                                     onClick={() => { resetLiabilityForm(); setShowLiabilityModal(true); }}
-                                    className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-300 transform hover:scale-105 flex items-center"
+                                    className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-200 flex items-center"
                                 >
                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
