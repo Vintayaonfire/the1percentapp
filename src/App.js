@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react'; // Added useMemo
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
 import { getFirestore, collection, addDoc, getDocs, updateDoc, deleteDoc, doc, onSnapshot, query, orderBy, setDoc } from 'firebase/firestore';
@@ -540,9 +540,9 @@ function App() {
         value: liabilityCategories[category]
     }));
 
-    // Color Palettes
-    const WARM_COLORS = ['#FF6347', '#FFD700', '#FFA07A', '#FF4500', '#FF8C00', '#FF7F50']; // Tomato, Gold, LightSalmon, OrangeRed, DarkOrange, Coral
-    const COOL_COLORS = ['#4682B4', '#6A5ACD', '#87CEEB', '#5F9EA0', '#1E90FF', '#00CED1']; // SteelBlue, SlateBlue, SkyBlue, CadetBlue, DodgerBlue, DarkTurquoise
+    // Color Palettes (Updated and more vibrant)
+    const PRIMARY_COLORS = ['#6366F1', '#8B5CF6', '#EC4899', '#F97316', '#FACC15', '#22C55E', '#06B6D4', '#3B82F6'];
+    const SECONDARY_COLORS = ['#A78BFA', '#F472B6', '#FB923C', '#FDE047', '#86EFAC', '#67E8F9', '#93C5FD', '#C084FC'];
 
 
     // Group income/expenses by month for trend analysis
@@ -616,10 +616,6 @@ function App() {
         acc[monthKey].push(item);
         return acc;
     }, {});
-
-    // Sort months in descending order (most recent first) based on YYYY-MM keys
-    // This is now derived from sortedMonths useMemo, so no direct sorting here.
-    // const sortedMonths = Object.keys(groupedIncomeExpenses).sort((a, b) => b.localeCompare(a));
 
 
     if (loading) {
@@ -780,9 +776,9 @@ function App() {
                                         <YAxis tickFormatter={formatNumberWithCommas} />
                                         <Tooltip formatter={(value) => `${formatNumberWithCommas(value)} บาท`} />
                                         <Legend />
-                                        <Bar dataKey="สินทรัพย์" fill="#4CAF50" barSize={40} />
-                                        <Bar dataKey="หนี้สิน" fill="#F44336" barSize={40} />
-                                        <Bar dataKey="มูลค่าสุทธิ" fill="#4a90e2" barSize={40} />
+                                        <Bar dataKey="สินทรัพย์" fill={PRIMARY_COLORS[5]} barSize={40} /> {/* Green */}
+                                        <Bar dataKey="หนี้สิน" fill={PRIMARY_COLORS[2]} barSize={40} /> {/* Pink/Red */}
+                                        <Bar dataKey="มูลค่าสุทธิ" fill={PRIMARY_COLORS[0]} barSize={40} /> {/* Indigo */}
                                     </BarChart>
                                 </ResponsiveContainer>
                             ) : (
@@ -822,9 +818,9 @@ function App() {
                                     <YAxis tickFormatter={formatNumberWithCommas} />
                                     <Tooltip formatter={(value) => `${formatNumberWithCommas(value)} บาท`} labelFormatter={formatMonthYearForDisplay} />
                                     <Legend />
-                                    <Bar dataKey="รายรับ" fill="#82ca9d" />
-                                    <Bar dataKey="รายจ่าย" fill="#ff7300" />
-                                    <Bar dataKey="สุทธิ" fill="#8884d8" />
+                                    <Bar dataKey="รายรับ" fill={PRIMARY_COLORS[5]} /> {/* Green */}
+                                    <Bar dataKey="รายจ่าย" fill={PRIMARY_COLORS[2]} /> {/* Pink/Red */}
+                                    <Bar dataKey="สุทธิ" fill={PRIMARY_COLORS[0]} /> {/* Indigo */}
                                 </BarChart>
                             </ResponsiveContainer>
                         </div>
@@ -886,7 +882,7 @@ function App() {
                                                     label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                                                 >
                                                     {incomePieChartDataMonthly.map((entry, index) => (
-                                                        <Cell key={`cell-income-monthly-${index}`} fill={WARM_COLORS[index % WARM_COLORS.length]} />
+                                                        <Cell key={`cell-income-monthly-${index}`} fill={PRIMARY_COLORS[index % PRIMARY_COLORS.length]} />
                                                     ))}
                                                 </Pie>
                                                 <Tooltip formatter={(value) => `${formatNumberWithCommas(value)} บาท`} />
@@ -912,7 +908,7 @@ function App() {
                                                     label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                                                 >
                                                     {expensePieChartDataMonthly.map((entry, index) => (
-                                                        <Cell key={`cell-expense-monthly-${index}`} fill={COOL_COLORS[index % COOL_COLORS.length]} />
+                                                        <Cell key={`cell-expense-monthly-${index}`} fill={SECONDARY_COLORS[index % SECONDARY_COLORS.length]} />
                                                     ))}
                                                 </Pie>
                                                 <Tooltip formatter={(value) => `${formatNumberWithCommas(value)} บาท`} />
@@ -966,8 +962,8 @@ function App() {
                                                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block" viewBox="0 0 20 20" fill="currentColor">
                                                                     <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zm-3.106 5.106L9.293 12.5l1.414 1.414 1.414-1.414 1.414-1.414-2.828-2.828z" />
                                                                     <path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd" />
-                                                                </svg>
-                                                            </button>
+                                                            </svg>
+                                                        </button>
                                                             <button
                                                                 onClick={() => confirmDelete('income_expenses', item.id, `คุณแน่ใจหรือไม่ที่จะลบรายการรายรับ-รายจ่าย "${item.description}"?`)}
                                                                 className="text-red-600 hover:text-red-800"
@@ -1012,7 +1008,7 @@ function App() {
                                     เพิ่มสินทรัพย์
                                 </button>
                             </div>
-                            {assetPieChartData.length > 0 && (
+                            {assetPieChartData.length > 0 ? (
                                 <div className="mb-4">
                                     <ResponsiveContainer width="100%" height={200}>
                                         <PieChart>
@@ -1026,7 +1022,7 @@ function App() {
                                                 label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                                             >
                                                 {assetPieChartData.map((entry, index) => (
-                                                    <Cell key={`cell-asset-${index}`} fill={WARM_COLORS[index % WARM_COLORS.length]} />
+                                                    <Cell key={`cell-asset-${index}`} fill={PRIMARY_COLORS[index % PRIMARY_COLORS.length]} />
                                                 ))}
                                             </Pie>
                                             <Tooltip formatter={(value) => `${formatNumberWithCommas(value)} บาท`} />
@@ -1034,6 +1030,8 @@ function App() {
                                         </PieChart>
                                     </ResponsiveContainer>
                                 </div>
+                            ) : (
+                                <p className="text-center text-gray-500 mt-10">ยังไม่มีข้อมูลสินทรัพย์</p>
                             )}
                             <div className="overflow-x-auto">
                                 <table className="min-w-full bg-white rounded-lg overflow-hidden">
@@ -1101,7 +1099,7 @@ function App() {
                                     เพิ่มหนี้สิน
                                 </button>
                             </div>
-                            {liabilityPieChartData.length > 0 && (
+                            {liabilityPieChartData.length > 0 ? (
                                 <div className="mb-4">
                                     <ResponsiveContainer width="100%" height={200}>
                                         <PieChart>
@@ -1115,7 +1113,7 @@ function App() {
                                                 label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                                             >
                                                 {liabilityPieChartData.map((entry, index) => (
-                                                    <Cell key={`cell-liability-${index}`} fill={COOL_COLORS[index % COOL_COLORS.length]} />
+                                                    <Cell key={`cell-liability-${index}`} fill={SECONDARY_COLORS[index % SECONDARY_COLORS.length]} />
                                                 ))}
                                             </Pie>
                                             <Tooltip formatter={(value) => `${formatNumberWithCommas(value)} บาท`} />
@@ -1123,6 +1121,8 @@ function App() {
                                         </PieChart>
                                     </ResponsiveContainer>
                                 </div>
+                            ) : (
+                                <p className="text-center text-gray-500 mt-10">ยังไม่มีข้อมูลหนี้สิน</p>
                             )}
                             <div className="overflow-x-auto">
                                 <table className="min-w-full bg-white rounded-lg overflow-hidden">
